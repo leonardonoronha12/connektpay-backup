@@ -1,37 +1,46 @@
-
 # Connekt Pay
 
-Aplicação Next.js (App Router) com banco e backend no Supabase.
+Plataforma SaaS de pagamentos white-label da Connekt Pay, construída com Next.js, Supabase e integração financeira orientada a Pix, cartão, assinaturas, split, ledger e webhooks.
+
+## Arquitetura
+
+- Checkout público interno da Connekt Pay.
+- Integração com provedor financeiro via API, sem redirecionamento para checkout hospedado.
+- Supabase como base transacional, autenticação e políticas de isolamento multi-tenant.
+- Fluxos internos para pagamentos, assinaturas, split, repasses, antecipação, conciliação e auditoria.
+
+## Stack
+
+- Next.js App Router
+- React 18
+- TypeScript
+- Supabase
+- Playwright
+- Vercel
 
 ## Rodar localmente
 
-1. Instale dependências:
+1. Instale as dependências:
 
 ```bash
-npm i
+npm install
 ```
 
-2. Configure as variáveis de ambiente:
+2. Crie o arquivo local de ambiente a partir do exemplo:
 
-Crie `.env.local` baseado em `.env.example`.
+```bash
+copy .env.example .env.local
+```
 
-3. Rode o servidor:
+3. Preencha as variáveis necessárias em `.env.local`.
+
+4. Rode o servidor:
 
 ```bash
 npm run dev
 ```
 
-## Deploy (produção)
-
-Guia completo: [docs/DEPLOY.md](./docs/DEPLOY.md)
-
-## Split
-
-- Configuração de taxa da Connekt (por organização): tabela `pay_taxa_config` (valores em centavos e bps).
-- Regras de split: endpoints internos `GET/POST /api/split-rules` e `PATCH/DELETE /api/split-rules/:id`.
-- Persistência por transação: `pay_transacao` + `pay_split` (snapshot do cálculo) e `pay_ledger`/`ledger_entries` após pagamento aprovado.
-
-## Testes
+## Testes e validações
 
 ```bash
 npm run lint
@@ -48,10 +57,30 @@ npm run test:notifications
 npm run test:dashboard
 ```
 
-## Go-live
+## Módulos principais
 
-Checklist: [GO-LIVE-CHECKLIST.md](./GO-LIVE-CHECKLIST.md)
+- Links de pagamento e checkout interno
+- Pix e cartão
+- Assinaturas e recorrência
+- Split e recebedores
+- Ledger e conciliação
+- Repasses e antecipação
+- KYC, auditoria e notificações
+
+## Documentação
+
+- Deploy: [docs/DEPLOY.md](./docs/DEPLOY.md)
+- Migrações: [docs/SUPABASE-MIGRATIONS.md](./docs/SUPABASE-MIGRATIONS.md)
+- Checklist de go live: [GO-LIVE-CHECKLIST.md](./GO-LIVE-CHECKLIST.md)
+- Segurança: [docs/PRODUCTION-SECURITY.md](./docs/PRODUCTION-SECURITY.md)
+
+## Split
+
+- Configuração de taxa da Connekt por organização em `pay_taxa_config`.
+- Regras de split via `GET/POST /api/split-rules` e `PATCH/DELETE /api/split-rules/:id`.
+- Persistência por transação via `pay_transacao`, `pay_split`, `pay_ledger` e `ledger_entries`.
 
 ## Design
 
-Figma (referência): https://www.figma.com/design/tv1kGT3ruc6a2ONpDfWCDM/Connekt-Pay-SaaS-Fintech-Design--c%C3%B3pia-.
+Figma de referência:
+https://www.figma.com/design/tv1kGT3ruc6a2ONpDfWCDM/Connekt-Pay-SaaS-Fintech-Design--c%C3%B3pia-.
