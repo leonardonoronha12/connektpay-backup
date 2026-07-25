@@ -1,0 +1,32 @@
+node_modules
+.next
+out
+.vercel
+*.log
+*.tsbuildinfo
+build-log.txt
+split-test.log
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Keep tracked examples
+!.env.example
+!.env.deploy.example
+
+# Test and build artifacts
+test-results
+test-results-*/
+playwright-report
+artifacts
+
+# Local diagnostics and temporary workspaces
+.dbg
+backups
+temp
+
+# Local certificates and sensitive scratch files
+certificates
+PAGARME_WEBHOOK_USERNAME=connekt-webhook.txt

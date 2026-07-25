@@ -1,0 +1,162 @@
+[
+  {
+    "order": 1,
+    "key": "login",
+    "title": "Login",
+    "path": "/login",
+    "url": "http://localhost:3008/login",
+    "file": "docs/screenshots/01-login.png"
+  },
+  {
+    "order": 2,
+    "key": "cadastro",
+    "title": "Cadastro",
+    "path": "/register",
+    "url": "http://localhost:3008/register",
+    "file": "docs/screenshots/02-cadastro.png"
+  },
+  {
+    "order": 3,
+    "key": "checkout",
+    "title": "Checkout",
+    "path": "/checkout",
+    "url": "http://localhost:3008/checkout",
+    "file": "docs/screenshots/03-checkout.png"
+  },
+  {
+    "order": 4,
+    "key": "dashboard",
+    "title": "Dashboard",
+    "path": "/dashboard",
+    "url": "http://localhost:3008/dashboard",
+    "file": "docs/screenshots/04-dashboard.png"
+  },
+  {
+    "order": 5,
+    "key": "transacoes",
+    "title": "Transações",
+    "path": "/transacoes",
+    "url": "http://localhost:3008/transacoes",
+    "file": "docs/screenshots/05-transacoes.png"
+  },
+  {
+    "order": 6,
+    "key": "links-pagamento",
+    "title": "Links de Pagamento",
+    "path": "/links-pagamento",
+    "url": "http://localhost:3008/links-pagamento",
+    "file": "docs/screenshots/06-links-pagamento.png"
+  },
+  {
+    "order": 7,
+    "key": "novo-link-pagamento",
+    "title": "Novo Link de Pagamento",
+    "path": "/links-pagamento/novo",
+    "url": "http://localhost:3008/links-pagamento/novo",
+    "file": "docs/screenshots/07-novo-link-pagamento.png"
+  },
+  {
+    "order": 8,
+    "key": "assinaturas",
+    "title": "Assinaturas",
+    "path": "/assinaturas",
+    "url": "http://localhost:3008/assinaturas",
+    "file": "docs/screenshots/08-assinaturas.png"
+  },
+  {
+    "order": 9,
+    "key": "recebedores",
+    "title": "Recebedores",
+    "path": "/recebedores",
+    "url": "http://localhost:3008/recebedores",
+    "file": "docs/screenshots/09-recebedores.png"
+  },
+  {
+    "order": 10,
+    "key": "ledger",
+    "title": "Ledger",
+    "path": "/ledger",
+    "url": "http://localhost:3008/ledger",
+    "file": "docs/screenshots/10-ledger.png"
+  },
+  {
+    "order": 11,
+    "key": "antecipacao",
+    "title": "Antecipação",
+    "path": "/antecipacao",
+    "url": "http://localhost:3008/antecipacao",
+    "file": "docs/screenshots/11-antecipacao.png"
+  },
+  {
+    "order": 12,
+    "key": "repasses",
+    "title": "Repasses",
+    "path": "/repasses",
+    "url": "http://localhost:3008/repasses",
+    "file": "docs/screenshots/12-repasses.png"
+  },
+  {
+    "order": 13,
+    "key": "admin-painel",
+    "title": "Painel Administrativo",
+    "path": "/admin/painel",
+    "url": "http://localhost:3008/admin/painel",
+    "file": "docs/screenshots/13-admin-painel.png"
+  },
+  {
+    "order": 14,
+    "key": "admin-kyc",
+    "title": "Aprovação KYC",
+    "path": "/admin/aprovacao-kyc",
+    "url": "http://localhost:3008/admin/aprovacao-kyc",
+    "file": "docs/screenshots/14-admin-kyc.png"
+  },
+  {
+    "order": 15,
+    "key": "admin-eventos",
+    "title": "Eventos",
+    "path": "/admin/eventos",
+    "url": "http://localhost:3008/admin/eventos",
+    "file": "docs/screenshots/15-admin-eventos.png"
+  },
+  {
+    "order": 16,
+    "key": "admin-conciliacao",
+    "title": "Conciliação",
+    "path": "/admin/conciliacao",
+    "url": "http://localhost:3008/admin/conciliacao",
+    "file": "docs/screenshots/16-admin-conciliacao.png"
+  },
+  {
+    "order": 17,
+    "key": "admin-auditoria",
+    "title": "Auditoria",
+    "path": "/admin/auditoria",
+    "url": "http://localhost:3008/admin/auditoria",
+    "file": "docs/screenshots/17-admin-auditoria.png"
+  },
+  {
+    "order": 18,
+    "key": "configuracoes",
+    "title": "Configurações",
+    "path": "/configuracoes",
+    "url": "http://localhost:3008/configuracoes",
+    "file": "docs/screenshots/18-configuracoes.png"
+  },
+  {
+    "order": 19,
+    "key": "configuracoes-integracoes",
+    "title": "Integrações",
+    "path": "/configuracoes/integracoes",
+    "url": "http://localhost:3008/configuracoes/integracoes",
+    "file": "docs/screenshots/19-configuracoes-integracoes.png"
+  },
+  {
+    "order": 20,
+    "key": "admin-provedor-financeiro",
+    "title": "Provedor Financeiro",
+    "path": "/admin/provedor-financeiro?as=owner",
+    "url": "http://localhost:3008/admin/provedor-financeiro?as=owner",
+    "file": "docs/screenshots/20-admin-provedor-financeiro.png"
+  }
+]

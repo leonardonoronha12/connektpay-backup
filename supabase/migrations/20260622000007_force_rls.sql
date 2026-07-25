@@ -1,0 +1,20 @@
+alter table public.organizations force row level security;
+alter table public.profiles force row level security;
+alter table public.customers force row level security;
+alter table public.receivers force row level security;
+alter table public.payment_links force row level security;
+alter table public.transactions force row level security;
+alter table public.subscriptions force row level security;
+alter table public.split_rules force row level security;
+alter table public.ledger_entries force row level security;
+alter table public.anticipation_requests force row level security;
+alter table public.payouts force row level security;
+alter table public.webhook_events force row level security;
+alter table public.kyc_requests force row level security;
+alter table public.audit_logs force row level security;
+alter table public.provider_settings force row level security;
+alter table public.webhook_attempts force row level security;
+alter table public.conciliation_runs force row level security;
+alter table public.conciliation_items force row level security;
+alter table public.api_rate_limits force row level security;
+

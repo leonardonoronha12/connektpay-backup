@@ -1,0 +1,36 @@
+{
+  "totals": {
+    "users": 3,
+    "profilesFound": 1,
+    "missingConfirmedProfiles": 2
+  },
+  "admin": {
+    "email": "admin@connektpay.com",
+    "id": "d23c4be6-6796-4a19-98e7-511b8f3edb1d",
+    "confirmed": true,
+    "user_meta_role": "owner",
+    "profile": {
+      "id": "d23c4be6-6796-4a19-98e7-511b8f3edb1d",
+      "organization_id": "d0f5ccfe-da7a-4cc7-bc2f-3d32466a212d",
+      "role": "owner",
+      "email": "admin@connektpay.com"
+    },
+    "organization": {
+      "id": "d0f5ccfe-da7a-4cc7-bc2f-3d32466a212d",
+      "name": "Connekt Pay — Demo E2E",
+      "status": "active"
+    }
+  },
+  "missingConfirmedProfilesTop10": [
+    {
+      "email": "leonardonoronha217@gmail.com",
+      "id": "862c5b06-71b1-4687-af5b-41eefc0d4c48",
+      "created_at": "2026-06-24T21:04:02.905923Z"
+    },
+    {
+      "email": "leonardonoronha12@gmail.com",
+      "id": "3914955e-26f7-4c2d-972c-2ad5cc626188",
+      "created_at": "2026-06-22T22:03:04.567639Z"
+    }
+  ]
+}

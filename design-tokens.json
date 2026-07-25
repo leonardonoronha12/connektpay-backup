@@ -1,0 +1,205 @@
+{
+  "$schema": "https://schemas.tokens.studio/schema/v3/token-set.json",
+  "global": {
+    "color": {
+      "navy": {
+        "$value": "#021B5B",
+        "$type": "color",
+        "$description": "Primary brand color – sidebar, headings, primary buttons"
+      },
+      "mint": {
+        "$value": "#39F0AE",
+        "$type": "color",
+        "$description": "Accent / CTA color – buttons, active states, chart highlights"
+      },
+      "mint-dark": {
+        "$value": "#22C98A",
+        "$type": "color",
+        "$description": "Mint hover/pressed state"
+      },
+      "background": {
+        "$value": "#F4F6FB",
+        "$type": "color",
+        "$description": "App canvas background"
+      },
+      "surface": {
+        "$value": "#FFFFFF",
+        "$type": "color",
+        "$description": "Card / popover surface"
+      },
+      "surface-subtle": {
+        "$value": "#EEF1F8",
+        "$type": "color",
+        "$description": "Input backgrounds, muted surfaces (--muted / --secondary)"
+      },
+      "surface-faint": {
+        "$value": "#FAFBFD",
+        "$type": "color",
+        "$description": "Table header background"
+      },
+      "foreground": {
+        "$value": "#0A0F1E",
+        "$type": "color",
+        "$description": "Primary text"
+      },
+      "foreground-muted": {
+        "$value": "#64748B",
+        "$type": "color",
+        "$description": "Secondary / helper text"
+      },
+      "foreground-subtle": {
+        "$value": "#94A3B8",
+        "$type": "color",
+        "$description": "Placeholder, timestamps"
+      },
+      "border": {
+        "$value": "rgba(2, 27, 91, 0.09)",
+        "$type": "color",
+        "$description": "Default border – cards, inputs, dividers"
+      },
+      "sidebar": {
+        "$value": "#021B5B",
+        "$type": "color",
+        "$description": "Sidebar background (same as navy)"
+      },
+      "sidebar-foreground": {
+        "$value": "#FFFFFF",
+        "$type": "color"
+      },
+      "sidebar-active-bg": {
+        "$value": "rgba(57, 240, 174, 0.13)",
+        "$type": "color",
+        "$description": "Active nav item background"
+      },
+      "sidebar-hover-bg": {
+        "$value": "rgba(255, 255, 255, 0.05)",
+        "$type": "color"
+      },
+      "sidebar-section-label": {
+        "$value": "rgba(255, 255, 255, 0.20)",
+        "$type": "color"
+      },
+      "ring": {
+        "$value": "#39F0AE",
+        "$type": "color",
+        "$description": "Focus ring color"
+      },
+
+      "status": {
+        "success-bg":    { "$value": "#ECFDF5", "$type": "color" },
+        "success-text":  { "$value": "#059669", "$type": "color" },
+        "success-dot":   { "$value": "#10B981", "$type": "color" },
+
+        "warning-bg":    { "$value": "#FFFBEB", "$type": "color" },
+        "warning-text":  { "$value": "#D97706", "$type": "color" },
+        "warning-dot":   { "$value": "#F59E0B", "$type": "color" },
+
+        "info-bg":       { "$value": "#EFF6FF", "$type": "color" },
+        "info-text":     { "$value": "#2563EB", "$type": "color" },
+        "info-dot":      { "$value": "#3B82F6", "$type": "color" },
+
+        "danger-bg":     { "$value": "#FEF2F2", "$type": "color" },
+        "danger-text":   { "$value": "#DC2626", "$type": "color" },
+        "danger-dot":    { "$value": "#EF4444", "$type": "color" },
+
+        "orange-bg":     { "$value": "#FFF7ED", "$type": "color" },
+        "orange-text":   { "$value": "#C2410C", "$type": "color" },
+        "orange-dot":    { "$value": "#F97316", "$type": "color" },
+
+        "neutral-bg":    { "$value": "#F8FAFC", "$type": "color" },
+        "neutral-text":  { "$value": "#64748B", "$type": "color" },
+        "neutral-dot":   { "$value": "#94A3B8", "$type": "color" }
+      },
+
+      "chart": {
+        "1": { "$value": "#021B5B", "$type": "color", "$description": "Navy – primary series" },
+        "2": { "$value": "#39F0AE", "$type": "color", "$description": "Mint – secondary / goal line" },
+        "3": { "$value": "#3B82F6", "$type": "color", "$description": "Blue" },
+        "4": { "$value": "#F59E0B", "$type": "color", "$description": "Amber" },
+        "5": { "$value": "#EF4444", "$type": "color", "$description": "Red" }
+      },
+
+      "avatar-palette": {
+        "blue-bg":   { "$value": "#DBEAFE", "$type": "color" },
+        "blue-fg":   { "$value": "#1D4ED8", "$type": "color" },
+        "green-bg":  { "$value": "#D1FAE5", "$type": "color" },
+        "green-fg":  { "$value": "#065F46", "$type": "color" },
+        "purple-bg": { "$value": "#EDE9FE", "$type": "color" },
+        "purple-fg": { "$value": "#5B21B6", "$type": "color" },
+        "pink-bg":   { "$value": "#FCE7F3", "$type": "color" },
+        "pink-fg":   { "$value": "#9D174D", "$type": "color" },
+        "yellow-bg": { "$value": "#FEF3C7", "$type": "color" },
+        "yellow-fg": { "$value": "#92400E", "$type": "color" }
+      }
+    },
+
+    "typography": {
+      "font-family-sans":  { "$value": "'Plus Jakarta Sans', system-ui, sans-serif", "$type": "fontFamilies" },
+      "font-family-mono":  { "$value": "'JetBrains Mono', monospace",               "$type": "fontFamilies" },
+      "font-size-base":    { "$value": "16",  "$type": "fontSizes", "$description": "Root font size (px)" },
+      "font-size-xs":      { "$value": "11",  "$type": "fontSizes" },
+      "font-size-sm":      { "$value": "12",  "$type": "fontSizes" },
+      "font-size-md":      { "$value": "13",  "$type": "fontSizes" },
+      "font-size-body":    { "$value": "13.5","$type": "fontSizes" },
+      "font-size-label":   { "$value": "14",  "$type": "fontSizes" },
+      "font-size-lg":      { "$value": "15",  "$type": "fontSizes" },
+      "font-size-xl":      { "$value": "16",  "$type": "fontSizes" },
+      "font-size-2xl":     { "$value": "17",  "$type": "fontSizes" },
+      "font-size-3xl":     { "$value": "24",  "$type": "fontSizes" },
+      "font-size-display": { "$value": "36",  "$type": "fontSizes", "$description": "Hero / login headline" },
+      "font-weight-normal": { "$value": "400", "$type": "fontWeights" },
+      "font-weight-medium": { "$value": "600", "$type": "fontWeights" },
+      "font-weight-bold":   { "$value": "700", "$type": "fontWeights" },
+      "font-weight-black":  { "$value": "800", "$type": "fontWeights" },
+      "line-height-tight":  { "$value": "1",   "$type": "lineHeights" },
+      "line-height-normal": { "$value": "1.5", "$type": "lineHeights" },
+      "line-height-relaxed":{ "$value": "1.7", "$type": "lineHeights" }
+    },
+
+    "spacing": {
+      "1":  { "$value": "4",  "$type": "spacing" },
+      "2":  { "$value": "8",  "$type": "spacing" },
+      "3":  { "$value": "12", "$type": "spacing" },
+      "4":  { "$value": "16", "$type": "spacing" },
+      "5":  { "$value": "20", "$type": "spacing" },
+      "6":  { "$value": "24", "$type": "spacing" },
+      "7":  { "$value": "28", "$type": "spacing" },
+      "8":  { "$value": "32", "$type": "spacing" },
+      "10": { "$value": "40", "$type": "spacing" },
+      "12": { "$value": "48", "$type": "spacing" }
+    },
+
+    "border-radius": {
+      "sm":   { "$value": "6",  "$type": "borderRadius" },
+      "md":   { "$value": "8",  "$type": "borderRadius" },
+      "lg":   { "$value": "10", "$type": "borderRadius" },
+      "xl":   { "$value": "12", "$type": "borderRadius" },
+      "2xl":  { "$value": "14", "$type": "borderRadius" },
+      "card": { "$value": "16", "$type": "borderRadius", "$description": "Default card radius" },
+      "full": { "$value": "9999", "$type": "borderRadius" }
+    },
+
+    "shadow": {
+      "card":    { "$value": "0 1px 4px rgba(2, 27, 91, 0.04)",  "$type": "boxShadow", "$description": "Default card shadow" },
+      "card-md": { "$value": "0 4px 20px rgba(2, 27, 91, 0.08)", "$type": "boxShadow" },
+      "accent":  { "$value": "0 4px 20px rgba(2, 27, 91, 0.30)", "$type": "boxShadow", "$description": "Accent KPI card (navy bg)" },
+      "mint-btn":{ "$value": "0 4px 16px rgba(57, 240, 174, 0.40)", "$type": "boxShadow", "$description": "Primary button glow" },
+      "modal":   { "$value": "0 8px 40px rgba(2, 27, 91, 0.10)", "$type": "boxShadow" }
+    },
+
+    "component": {
+      "sidebar-width":     { "$value": "232", "$type": "sizing" },
+      "header-height":     { "$value": "56",  "$type": "sizing" },
+      "avatar-sm":         { "$value": "28",  "$type": "sizing" },
+      "avatar-md":         { "$value": "32",  "$type": "sizing" },
+      "avatar-lg":         { "$value": "36",  "$type": "sizing" },
+      "icon-container-sm": { "$value": "36",  "$type": "sizing" },
+      "icon-container-md": { "$value": "40",  "$type": "sizing" },
+      "kpi-card-padding":  { "$value": "22 24","$type": "spacing" },
+      "table-cell-padding":{ "$value": "13 20","$type": "spacing" },
+      "page-padding":      { "$value": "28 32","$type": "spacing" },
+      "button-primary-padding-md": { "$value": "10 18", "$type": "spacing" },
+      "button-primary-padding-sm": { "$value": "7 14",  "$type": "spacing" }
+    }
+  }
+}
