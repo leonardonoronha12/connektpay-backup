@@ -70,6 +70,25 @@ export function getPagarMePublicBaseUrl() {
   return typeof serverValue === 'string' && serverValue.trim() ? serverValue.trim() : null
 }
 
+function isSandboxLikeUrl(value: string | null | undefined) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return false
+  return normalized.includes('sandbox') || normalized.includes('sdx') || normalized.includes('staging') || normalized.includes('homolog')
+}
+
+export function getFinancialProviderEnvironment(providerId = getFinancialProvider()): 'sandbox' | 'production' {
+  if (providerId === 'pagarme') {
+    const secretKey = typeof process.env.PAGARME_SECRET_KEY === 'string' ? process.env.PAGARME_SECRET_KEY.trim() : ''
+    if (secretKey.startsWith('sk_test_')) return 'sandbox'
+    if (isSandboxLikeUrl(getPagarMePublicBaseUrl())) return 'sandbox'
+    return 'production'
+  }
+
+  const myGatewayBaseUrl = typeof process.env.MYGATEWAY_BASE_URL === 'string' ? process.env.MYGATEWAY_BASE_URL.trim() : ''
+  return isSandboxLikeUrl(myGatewayBaseUrl) ? 'sandbox' : 'production'
+}
+
 export function isPagarMeCardTokenizationConfigured() {
   return Boolean(getPagarMePublicAppId() && getPagarMePublicBaseUrl())
 }

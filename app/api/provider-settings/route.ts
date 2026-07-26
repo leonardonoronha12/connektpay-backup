@@ -1,5 +1,6 @@
 import {
   getFinancialProvider,
+  getFinancialProviderEnvironment,
   getProviderCapabilities,
   isSupabaseConfigured,
   isSupabaseServiceConfigured,
@@ -98,7 +99,7 @@ export async function GET(request: Request) {
     const settings = await getOrCreateProviderSettings(supabase, ctx.organizationId)
     const payload = !settings
       ? withRuntimeMeta({
-          environment: 'production',
+          environment: getFinancialProviderEnvironment(),
           base_url: null,
           webhook_url: null,
           timeout_seconds: 30,
