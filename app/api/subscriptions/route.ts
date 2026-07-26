@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getOrganizationOwnerProfileId } from '@/lib/audit-actor'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getOrganizationOwnerProfileId } from '@/lib/audit-actor'
 import { classifyInternalApiError, logApiError } from '@/lib/api-error'
 import { ProviderError, mapProviderErrorToUserMessage } from '@/lib/acquirer/provider-error'
 import { getFinancialProvider, getProviderCapabilities, isProviderConfigured, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
@@ -11,8 +11,6 @@ import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { buildCsvFilename, buildCsvString } from '@/lib/csv'
 import { NextResponse } from 'next/server'
 import { calculateChurn, calculateMRR, createSubscription, listSubscriptions } from '@/lib/subscription-service'
-
-const SUBSCRIPTIONS_RUNTIME_BUILD_MARKER = 'subscriptions-runtime-d5acedd-v2'
 
 export const dynamic = 'force-dynamic'
 
@@ -175,7 +173,6 @@ export async function GET(request: Request) {
         headers: {
           'content-type': 'text/csv; charset=utf-8',
           'content-disposition': `attachment; filename="${buildCsvFilename('subscriptions')}"`,
-          'X-Connekt-Build-Marker': SUBSCRIPTIONS_RUNTIME_BUILD_MARKER,
         },
       })
     }
@@ -184,16 +181,12 @@ export async function GET(request: Request) {
       mrrCents,
       churnRate,
       nextChargeAt: nextChargeAt ? new Date(nextChargeAt).toISOString() : null,
-      runtimeBuildMarker: SUBSCRIPTIONS_RUNTIME_BUILD_MARKER,
       providerId: getFinancialProvider(),
       requiresClientCardTokenization: getFinancialProvider() === 'pagarme',
-    }, { headers: { 'X-Connekt-Build-Marker': SUBSCRIPTIONS_RUNTIME_BUILD_MARKER } })
+    })
   } catch (e) {
     const err = classifyInternalApiError(e)
-    return json(
-      { error: err.message, runtimeBuildMarker: SUBSCRIPTIONS_RUNTIME_BUILD_MARKER },
-      { status: err.status, headers: { 'X-Connekt-Build-Marker': SUBSCRIPTIONS_RUNTIME_BUILD_MARKER } },
-    )
+    return json({ error: err.message }, { status: err.status })
   }
 }
 
