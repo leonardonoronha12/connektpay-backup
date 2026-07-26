@@ -67,6 +67,7 @@ function buildProviderCapabilities() {
 function withRuntimeMeta(settings: ProviderSettingsRuntimeFields) {
   return {
     ...settings,
+    environment: getFinancialProviderEnvironment(),
     provider_id: getFinancialProvider(),
     provider_label: getProviderLabel(getFinancialProvider()),
     capabilities: buildProviderCapabilities(),
