@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { closeAssistantIfVisible, getBrowserCreds, loginViaUi } from './helpers/e2e-auth'
 
 async function openMobileMenuIfNeeded(page: Page) {

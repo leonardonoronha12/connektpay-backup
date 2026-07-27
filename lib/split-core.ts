@@ -16,6 +16,8 @@ export type SplitRuleConfig = {
 
 export type ReceiverConfig = {
   id: string
+  provider: string | null
+  providerEnvironment: string | null
   providerReference: string | null
   status: string
   kycStatus: string
@@ -190,7 +192,12 @@ export function calculateSplit(input: {
   }
 }
 
-export function createSplitPayloadForMyGateway(input: { split: CalculatedSplit; receivers: ReceiverConfig[] }): MyGatewaySplitPayload {
+export function createSplitPayloadForMyGateway(input: {
+  split: CalculatedSplit
+  receivers: ReceiverConfig[]
+  providerId: string
+  providerEnvironment: string
+}): MyGatewaySplitPayload {
   const receiverMap = new Map<string, ReceiverConfig>()
   for (const r of input.receivers) receiverMap.set(r.id, r)
 
@@ -200,6 +207,10 @@ export function createSplitPayloadForMyGateway(input: { split: CalculatedSplit; 
     if (!rc) throw new Error('Receiver not found')
     if (String(rc.status) !== 'active') throw new Error('Receiver is not active')
     if (String(rc.kycStatus) !== 'approved') throw new Error('Receiver KYC not approved')
+    if (!rc.providerEnvironment) throw new Error('Receiver missing provider environment')
+    if (!rc.provider) throw new Error('Receiver missing provider')
+    if (rc.provider !== input.providerId) throw new Error('Receiver bound to another provider')
+    if (rc.providerEnvironment !== input.providerEnvironment) throw new Error('Receiver bound to another provider environment')
     if (!rc.providerReference) throw new Error('Receiver missing provider reference')
     payloadReceivers.push({ receiverId: rc.providerReference, amount: Number(row.amount) })
   }
@@ -226,6 +237,9 @@ export function mapSplitConfigErrorToUserMessage(e: unknown) {
     return 'Split não configurado. Cadastre um recebedor aprovado e/ou regras de split.'
   }
   if (lower.includes('kyc')) return 'Recebedor com KYC não aprovado. Aprove o KYC antes de habilitar split.'
+  if (lower.includes('another provider environment')) return 'Recebedor pertence a outro ambiente financeiro.'
+  if (lower.includes('another provider')) return 'Recebedor pertence a outro provedor financeiro.'
+  if (lower.includes('provider environment')) return 'Recebedor sem ambiente financeiro definido. Revise o cadastro antes de habilitar split.'
   if (lower.includes('provider reference')) return 'Recebedor sem vínculo com o provedor. Sincronize o recebedor antes de habilitar split.'
   if (lower.includes('exceed') || lower.includes('mismatch')) return 'Regras de split inválidas. Revise valores e percentuais.'
   return 'Não foi possível calcular o split.'

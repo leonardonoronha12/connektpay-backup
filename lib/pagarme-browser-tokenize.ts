@@ -32,6 +32,12 @@ function readTokenFromResponse(payload: any) {
   return ''
 }
 
+function normalizeCardLabel(label: unknown) {
+  const trimmed = safeTrim(label)
+  if (!trimmed) return ''
+  return trimmed.slice(0, 32)
+}
+
 export type PagarMeBrowserCardToken = {
   token: string
   brand?: string
@@ -61,6 +67,7 @@ export async function tokenizePagarMeCardInBrowser(input: {
   const expMonth = onlyDigits(input.expMonth).slice(0, 2)
   const expYear = onlyDigits(input.expYear).slice(-2)
   const cvv = onlyDigits(input.cvv).slice(0, 4)
+  const label = normalizeCardLabel(input.label)
 
   if (!holderName || !holderDocument || number.length < 13 || number.length > 19 || !expMonth || !expYear || cvv.length < 3) {
     throw new Error('Dados do cartão inválidos para tokenização.')
@@ -88,7 +95,7 @@ export async function tokenizePagarMeCardInBrowser(input: {
         exp_year: expYear,
         cvv,
         ...(brand ? { brand } : null),
-        ...(safeTrim(input.label) ? { label: safeTrim(input.label) } : null),
+        ...(label ? { label } : null),
       },
     }),
   })

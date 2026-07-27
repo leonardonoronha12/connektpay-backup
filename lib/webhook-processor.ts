@@ -11,6 +11,7 @@ import { mapPayoutStatusFromEventType } from '@/lib/payout-core'
 import { calculateSplitForProvider, ensurePayLedgerFromSplitOnce, markPayTransacaoProviderSuccess, persistSplitSnapshot } from '@/lib/split-service'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import { applyDunningOnFailure, ensureRecurringChargeSnapshot, markRecurringChargePaid } from '@/lib/subscription-service'
+import { getFinancialEnvironment } from '@/lib/env'
 import { mapTransactionStatus } from '@/lib/webhook-status'
 
 export { mapTransactionStatus } from '@/lib/webhook-status'
@@ -161,6 +162,8 @@ export async function processWebhookEventRow(event: {
   attempts: number
   payload: any
   provider_event_id?: string | null
+  provider?: string | null
+  provider_environment?: string | null
 }) {
   const supabase = getSupabaseAdminClient()
 
@@ -173,6 +176,17 @@ export async function processWebhookEventRow(event: {
     const payload = body.data ?? {}
     const meta = extractProviderMetadata(payload)
     const providerEventId = (event as any).provider_event_id ? String((event as any).provider_event_id) : typeof body.id === 'string' ? body.id : typeof payload?.event_id === 'string' ? payload.event_id : null
+    const runtime = getFinancialEnvironment()
+    const eventProvider = typeof event.provider === 'string' && event.provider.trim() ? event.provider.trim() : runtime.providerId
+    const eventProviderEnvironment =
+      typeof event.provider_environment === 'string' && event.provider_environment.trim() ? event.provider_environment.trim() : runtime.environment
+
+    if (eventProvider !== runtime.providerId) {
+      throw new Error('Webhook registrado para provedor incompatível com este deployment.')
+    }
+    if (eventProviderEnvironment !== runtime.environment) {
+      throw new Error('Webhook registrado para ambiente financeiro incompatível com este deployment.')
+    }
 
     const transactionId =
       typeof meta.internal_transaction_id === 'string'
@@ -204,14 +218,16 @@ export async function processWebhookEventRow(event: {
     if (transactionId) {
       const { data } = await supabase
         .from('transactions')
-        .select('id, organization_id, amount, status, provider_reference, provider_order_id, provider_charge_id, payment_link_id')
+        .select('id, organization_id, amount, status, provider, provider_environment, provider_reference, provider_order_id, provider_charge_id, payment_link_id')
         .eq('id', transactionId)
         .maybeSingle()
       tx = data
     } else if (providerOrderId) {
       const { data } = await supabase
         .from('transactions')
-        .select('id, organization_id, amount, status, provider_reference, provider_order_id, provider_charge_id, payment_link_id')
+        .select('id, organization_id, amount, status, provider, provider_environment, provider_reference, provider_order_id, provider_charge_id, payment_link_id')
+        .eq('provider', eventProvider)
+        .eq('provider_environment', eventProviderEnvironment)
         .eq('provider_order_id', providerOrderId)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -220,7 +236,9 @@ export async function processWebhookEventRow(event: {
     } else if (providerChargeId) {
       const { data } = await supabase
         .from('transactions')
-        .select('id, organization_id, amount, status, provider_reference, provider_order_id, provider_charge_id, payment_link_id')
+        .select('id, organization_id, amount, status, provider, provider_environment, provider_reference, provider_order_id, provider_charge_id, payment_link_id')
+        .eq('provider', eventProvider)
+        .eq('provider_environment', eventProviderEnvironment)
         .eq('provider_charge_id', providerChargeId)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -229,7 +247,9 @@ export async function processWebhookEventRow(event: {
     } else if (providerPaymentId) {
       const { data } = await supabase
         .from('transactions')
-        .select('id, organization_id, amount, status, provider_reference, provider_order_id, provider_charge_id, payment_link_id')
+        .select('id, organization_id, amount, status, provider, provider_environment, provider_reference, provider_order_id, provider_charge_id, payment_link_id')
+        .eq('provider', eventProvider)
+        .eq('provider_environment', eventProviderEnvironment)
         .eq('provider_reference', providerPaymentId)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -273,12 +293,18 @@ export async function processWebhookEventRow(event: {
     const assinaturaId = typeof meta.assinatura_id === 'string' ? meta.assinatura_id : null
     let assinatura: any = null
     if (assinaturaId) {
-      const { data } = await supabase.from('pay_assinatura').select('id, organization_id, plano_id, recebedor_id, status, attempts_failed, acquirer_subscription_id').eq('id', assinaturaId).maybeSingle()
+      const { data } = await supabase
+        .from('pay_assinatura')
+        .select('id, organization_id, plano_id, recebedor_id, status, attempts_failed, acquirer_subscription_id, provider, provider_environment')
+        .eq('id', assinaturaId)
+        .maybeSingle()
       assinatura = data
     } else if (providerSubscriptionId) {
       const { data } = await supabase
         .from('pay_assinatura')
-        .select('id, organization_id, plano_id, recebedor_id, status, attempts_failed, acquirer_subscription_id')
+        .select('id, organization_id, plano_id, recebedor_id, status, attempts_failed, acquirer_subscription_id, provider, provider_environment')
+        .eq('provider', eventProvider)
+        .eq('provider_environment', eventProviderEnvironment)
         .eq('acquirer_subscription_id', providerSubscriptionId)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -301,6 +327,8 @@ export async function processWebhookEventRow(event: {
             currency: typeof payload?.currency === 'string' ? payload.currency : paymentLink.currency ?? 'BRL',
             method: normalizeWebhookMethod(payload, paymentLink.methods ?? null),
             status: nextStatus,
+            provider: eventProvider,
+            provider_environment: eventProviderEnvironment,
             provider_reference: providerPaymentId,
             provider_payload: body,
             public_token: crypto.randomUUID(),
@@ -419,6 +447,8 @@ export async function processWebhookEventRow(event: {
         .from('transactions')
         .update({
           status: nextStatus,
+          provider: eventProvider,
+          provider_environment: eventProviderEnvironment,
           provider_reference: providerPaymentId ?? tx?.provider_reference ?? null,
           provider_order_id: providerOrderId ?? tx?.provider_order_id ?? null,
           provider_charge_id: providerChargeId ?? tx?.provider_charge_id ?? null,
@@ -431,6 +461,8 @@ export async function processWebhookEventRow(event: {
         .from('pay_transacao')
         .update({
           status: nextStatus,
+          provider: eventProvider,
+          provider_environment: eventProviderEnvironment,
           provider_reference: providerPaymentId ?? tx?.provider_reference ?? null,
           provider_order_id: providerOrderId ?? tx?.provider_order_id ?? null,
           provider_charge_id: providerChargeId ?? tx?.provider_charge_id ?? null,
@@ -445,12 +477,14 @@ export async function processWebhookEventRow(event: {
 
     const nextSubStatus = mapSubscriptionStatus(body.type)
     if (nextSubStatus && assinatura?.id) {
-      const updates: Record<string, unknown> = { status: nextSubStatus }
+      const updates: Record<string, unknown> = { status: nextSubStatus, provider: eventProvider, provider_environment: eventProviderEnvironment }
       if (nextSubStatus === 'canceled') updates.canceled_at = new Date().toISOString()
       await supabase.from('pay_assinatura').update(updates).eq('id', assinatura.id as string)
       await supabase.from('pay_subscription_events').insert({
         organization_id: organizationId,
         assinatura_id: assinatura.id,
+        provider: eventProvider,
+        provider_environment: eventProviderEnvironment,
         provider_event_id: providerEventId,
         event_type: body.type,
         payload: body,

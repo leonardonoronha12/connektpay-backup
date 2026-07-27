@@ -1,7 +1,7 @@
-﻿﻿﻿﻿﻿﻿import { getAcquirerProvider } from '@/lib/acquirer'
-import { ProviderError, mapProviderErrorToUserMessage } from '@/lib/acquirer/provider-error'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getAcquirerProvider } from '@/lib/acquirer'
 import type { CreatePaymentRequest, PaymentResponse } from '@/lib/acquirer/types'
-import { getFinancialProvider, isSupabaseServiceConfigured } from '@/lib/env'
+import { createProviderPayment } from '@/lib/provider-payment-sync'
+import { getFinancialEnvironment, getFinancialProvider, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { getOrganizationOwnerProfileId } from '@/lib/audit-actor'
 import { classifyInternalApiError } from '@/lib/api-error'
@@ -149,11 +149,12 @@ function toProviderPayloadMetadata(input: {
   paymentLink?: CheckoutPaymentLinkRecord | null
   transactionId: string
   idempotencyKey: string
+  providerEnvironment: string
   bodyMetadata?: Record<string, string>
 }) {
   const userMetadata = Object.fromEntries(
     Object.entries(input.bodyMetadata ?? {}).filter(([key, value]) => {
-      if (['organization_id', 'internal_transaction_id', 'internal_payment_link_id', 'idempotency_key'].includes(key)) return false
+      if (['organization_id', 'internal_transaction_id', 'internal_payment_link_id', 'idempotency_key', 'provider_environment'].includes(key)) return false
       return typeof value === 'string' && value.trim().length > 0
     }),
   )
@@ -164,6 +165,7 @@ function toProviderPayloadMetadata(input: {
     internal_transaction_id: input.transactionId,
     internal_payment_link_id: input.paymentLink?.id ?? '',
     idempotency_key: input.idempotencyKey,
+    provider_environment: input.providerEnvironment,
     payment_link_slug: input.paymentLink?.slug ?? '',
   }
 }
@@ -412,6 +414,7 @@ export async function POST(request: Request) {
     const supabase = getSupabaseAdminClient()
     const apiKeyCtx = await getOrgFromApiKey(request)
     const providerId = getFinancialProvider()
+    const financialRuntime = getFinancialEnvironment(providerId)
     if (apiKeyCtx?.apiKeyHash) {
       const allowed = await checkPublicRateLimit({
         organizationId: apiKeyCtx.organizationId,
@@ -440,7 +443,7 @@ export async function POST(request: Request) {
       const organizationId = apiKeyCtx ? apiKeyCtx.organizationId : (ctx!.organizationId as string)
       const actorProfileId = apiKeyCtx ? apiKeyCtx.actorProfileId : (ctx!.actorProfileId as string)
       const authType: 'api_key' | 'session' = apiKeyCtx ? 'api_key' : 'session'
-      const requirePhone = providerId === 'pagarme' && body.method === 'pix'
+      const requirePhone = providerId === 'pagarme'
       const customerValidation = validateCheckoutCustomer(body.customer, { requirePhone })
       if (!customerValidation.ok) return json({ error: customerValidation.message }, { status: 400 })
       const customer = customerValidation.customer
@@ -460,6 +463,7 @@ export async function POST(request: Request) {
         customer,
         customerId,
         provider: providerId,
+        providerEnvironment: financialRuntime.environment,
         metadata: body.metadata,
         explicitIdempotencyKey: getRequestedIdempotencyKey(request, body),
         requestId: request.headers.get('x-request-id'),
@@ -481,9 +485,8 @@ export async function POST(request: Request) {
         })
       }
 
-      const provider = getAcquirerProvider()
-      try {
-        const payment = await provider.createPayment({
+      const providerPayment = await createProviderPayment({
+        request: {
           amount: { amount: result.amount, currency: result.currency },
           method: body.method,
           description: body.description ?? 'Pagamento',
@@ -493,12 +496,16 @@ export async function POST(request: Request) {
             paymentLink: null,
             transactionId: result.transaction.transactionId,
             idempotencyKey: result.transaction.idempotencyKey,
+            providerEnvironment: financialRuntime.environment,
             bodyMetadata: body.metadata,
           }),
           installments: typeof body.installments === 'number' ? body.installments : undefined,
           card: normalizedCard ?? undefined,
-        })
+        },
+      })
 
+      if (providerPayment.ok) {
+        const payment = providerPayment.payment
         await persistProviderSuccess({
           supabase,
           transactionId: result.transaction.transactionId,
@@ -531,9 +538,8 @@ export async function POST(request: Request) {
           idempotencyKey: result.transaction.idempotencyKey,
           payment,
         })
-      } catch (error) {
-        const message = mapProviderErrorToUserMessage(error, 'Falha ao processar o pagamento no provedor financeiro.')
-        const code = error instanceof ProviderError ? error.code : 'provider_error'
+      } else {
+        const { code, message, status } = providerPayment
 
         await persistProviderFailure({
           supabase,
@@ -576,7 +582,7 @@ export async function POST(request: Request) {
               status: 'failed',
             },
           },
-          { status: error instanceof ProviderError ? error.status : 502 },
+          { status },
         )
       }
     }
@@ -602,7 +608,7 @@ export async function POST(request: Request) {
       expectedOrganizationId: apiKeyCtx?.organizationId ?? null,
     })
 
-    const requirePhone = providerId === 'pagarme' && body.method === 'pix'
+    const requirePhone = providerId === 'pagarme'
     const customerValidation = validateCheckoutCustomer(body.customer, { requirePhone })
     if (!customerValidation.ok) return json({ error: customerValidation.message }, { status: 400 })
     const customer = customerValidation.customer
@@ -645,6 +651,7 @@ export async function POST(request: Request) {
       customer,
       customerId,
       provider: providerId,
+      providerEnvironment: financialRuntime.environment,
       metadata: body.metadata,
       explicitIdempotencyKey: getRequestedIdempotencyKey(request, body),
       requestId: request.headers.get('x-request-id'),
@@ -666,9 +673,8 @@ export async function POST(request: Request) {
       })
     }
 
-    const provider = getAcquirerProvider()
-    try {
-      const payment = await provider.createPayment({
+    const providerPayment = await createProviderPayment({
+      request: {
         amount: { amount: result.amount, currency: result.currency },
         method: body.method,
         description: body.description ?? link.description ?? link.name ?? 'Pagamento',
@@ -678,12 +684,16 @@ export async function POST(request: Request) {
           paymentLink: link,
           transactionId: result.transaction.transactionId,
           idempotencyKey: result.transaction.idempotencyKey,
+          providerEnvironment: financialRuntime.environment,
           bodyMetadata: body.metadata,
         }),
         installments: typeof body.installments === 'number' ? body.installments : undefined,
         card: normalizedCard ?? undefined,
-      })
+      },
+    })
 
+    if (providerPayment.ok) {
+      const payment = providerPayment.payment
       await persistProviderSuccess({
         supabase,
         transactionId: result.transaction.transactionId,
@@ -717,9 +727,8 @@ export async function POST(request: Request) {
         idempotencyKey: result.transaction.idempotencyKey,
         payment,
       })
-    } catch (error) {
-      const message = mapProviderErrorToUserMessage(error, 'Falha ao processar o pagamento no provedor financeiro.')
-      const code = error instanceof ProviderError ? error.code : 'provider_error'
+    } else {
+      const { code, message, status } = providerPayment
 
       await persistProviderFailure({
         supabase,
@@ -763,7 +772,7 @@ export async function POST(request: Request) {
             status: 'failed',
           },
         },
-        { status: error instanceof ProviderError ? error.status : 502 },
+        { status },
       )
     }
   } catch (error) {

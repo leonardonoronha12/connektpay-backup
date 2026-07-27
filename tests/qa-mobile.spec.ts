@@ -56,7 +56,7 @@ test.describe('QA Mobile', () => {
       await fillCheckoutCustomer(page)
       await submitCheckout(page, testInfo)
 
-      const controlledError = page.getByText(/Falha ao processar o split|Não foi possível iniciar o pagamento|Erro/i).first()
+      const controlledError = page.getByText(/Falha ao processar o split|Não foi possível iniciar o pagamento|Split inválido|Erro/i).first()
       const awaitingConfirmation = page.getByText(/Aguardando confirmação em tempo real/i).first()
       const result = await Promise.race([
         controlledError.waitFor({ timeout: 25_000 }).then(() => 'error').catch(() => null),

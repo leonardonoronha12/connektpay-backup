@@ -1,6 +1,6 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getAcquirerProvider } from '@/lib/acquirer'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getAcquirerProvider } from '@/lib/acquirer'
 import { ProviderError, mapProviderErrorToUserMessage } from '@/lib/acquirer/provider-error'
-import { getFinancialProvider, getProviderCapabilities, isProviderConfigured, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialEnvironment, getProviderCapabilities, isProviderConfigured, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { calculatePayoutFee } from '@/lib/payout-core'
@@ -14,17 +14,19 @@ function json(data: unknown, init?: ResponseInit) {
 }
 
 function buildPayoutProviderState() {
-  const providerId = getFinancialProvider()
+  const runtime = getFinancialEnvironment()
+  const providerId = runtime.providerId
   const capabilities = getProviderCapabilities(providerId)
   if (!capabilities.credentialsConfigured || !isProviderConfigured(providerId)) return null
   if (!capabilities.payouts) {
     return {
       providerId,
+      providerEnvironment: runtime.environment,
       enabled: false,
       message: 'Repasses ainda nÃ£o estÃ£o disponÃ­veis para o provedor financeiro ativo.',
     }
   }
-  return { providerId, enabled: true as const }
+  return { providerId, providerEnvironment: runtime.environment, enabled: true as const }
 }
 
 function isSafeEmptySupabaseError(err: any) {
@@ -43,11 +45,16 @@ export async function GET(request: Request) {
     const ctx = await requireSessionOrgContext()
     assertRole(ctx.role, ['owner', 'financeiro', 'super_admin'])
     const supabase = isSupabaseServiceConfigured() ? getSupabaseAdminClient() : await getSupabaseServerClient()
+    const runtime = getFinancialEnvironment()
 
     const { data, error } = await supabase
       .from('payouts')
-      .select('id, receiver_id, gross_amount, fee_amount, net_amount, status, scheduled_for, provider_reference, provider_status, requested_at, paid_at, failed_at, canceled_at, created_at')
+      .select(
+        'id, receiver_id, gross_amount, fee_amount, net_amount, status, provider, provider_environment, scheduled_for, provider_reference, provider_status, requested_at, paid_at, failed_at, canceled_at, created_at',
+      )
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .eq('is_internal', false)
       .order('created_at', { ascending: false })
 
@@ -79,9 +86,11 @@ export async function POST(request: Request) {
     const supabase = getSupabaseAdminClient()
     const { data: receiver, error: receiverError } = await supabase
       .from('receivers')
-      .select('id, organization_id, status')
+      .select('id, organization_id, status, provider, provider_environment, provider_receiver_id, provider_reference')
       .eq('id', body.receiverId)
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', providerState.providerId)
+      .eq('provider_environment', providerState.providerEnvironment)
       .maybeSingle()
     if (receiverError) return json({ error: 'NÃ£o foi possÃ­vel validar o recebedor agora.' }, { status: 500 })
     if (!receiver?.id) return json({ error: 'Recebedor nÃ£o encontrado para esta organizaÃ§Ã£o.' }, { status: 404 })
@@ -94,9 +103,12 @@ export async function POST(request: Request) {
 
     const provider = getAcquirerProvider()
     const providerPayout = await provider.createPayout({
-      receiverId: body.receiverId,
+      receiverId:
+        typeof (receiver as any).provider_receiver_id === 'string' && (receiver as any).provider_receiver_id.trim()
+          ? String((receiver as any).provider_receiver_id)
+          : body.receiverId,
       amount: { amount: body.amount, currency: 'BRL' },
-      metadata: { organization_id: ctx.organizationId },
+      metadata: { organization_id: ctx.organizationId, provider_environment: providerState.providerEnvironment },
     })
 
     const now = new Date().toISOString()
@@ -105,6 +117,8 @@ export async function POST(request: Request) {
       .insert({
         organization_id: ctx.organizationId,
         receiver_id: body.receiverId,
+        provider: providerState.providerId,
+        provider_environment: providerState.providerEnvironment,
         gross_amount: body.amount,
         fee_amount: feeAmount,
         net_amount: netAmount,
@@ -126,6 +140,8 @@ export async function POST(request: Request) {
     await supabase.from('payout_events').insert({
       organization_id: ctx.organizationId,
       payout_id: data.id,
+      provider: providerState.providerId,
+      provider_environment: providerState.providerEnvironment,
       event_type: 'payout.requested',
       provider_event_id: null,
       payload: { provider_reference: providerPayout.id },

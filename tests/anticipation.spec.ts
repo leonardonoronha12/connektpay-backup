@@ -203,6 +203,8 @@ function seedReceivers() {
     {
       id: 'recv_1',
       organization_id: 'org_1',
+      provider: 'mygateway',
+      provider_environment: 'production',
       name: 'Recebedor Elegivel',
       document: '12345678901',
       type: 'pf',
@@ -221,6 +223,8 @@ function seedReceivers() {
     {
       id: 'recv_blocked',
       organization_id: 'org_1',
+      provider: 'mygateway',
+      provider_environment: 'production',
       name: 'Recebedor Bloqueado',
       document: '10987654321',
       type: 'pf',
@@ -239,6 +243,8 @@ function seedReceivers() {
     {
       id: 'recv_other_org',
       organization_id: 'org_2',
+      provider: 'mygateway',
+      provider_environment: 'production',
       name: 'Outro Recebedor',
       document: '22233344455',
       type: 'pj',
@@ -262,6 +268,8 @@ function seedLedger(balanceAfter: number) {
     {
       id: 'ledger_1',
       organization_id: 'org_1',
+      provider: 'mygateway',
+      provider_environment: 'production',
       balance_after: balanceAfter,
       occurred_at: '2026-07-13T12:00:00.000Z',
       created_at: '2026-07-13T12:00:00.000Z',
@@ -405,6 +413,8 @@ test.describe('Antecipação interna', () => {
         {
           id: 'ant_existing',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           recebedor_id: 'recv_1',
           requested_amount_centavos: 90_000,
           available_amount_centavos: 500_000,
@@ -458,6 +468,8 @@ test.describe('Antecipação interna', () => {
         {
           id: 'ant_review',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           recebedor_id: 'recv_1',
           requested_amount_centavos: 100_000,
           available_amount_centavos: 500_000,
@@ -495,6 +507,8 @@ test.describe('Antecipação interna', () => {
         {
           id: 'ant_reject',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           recebedor_id: 'recv_1',
           requested_amount_centavos: 80_000,
           available_amount_centavos: 500_000,
@@ -533,6 +547,8 @@ test.describe('Antecipação interna', () => {
         {
           id: 'ant_cancel',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           recebedor_id: 'recv_1',
           requested_amount_centavos: 60_000,
           available_amount_centavos: 500_000,
@@ -571,6 +587,8 @@ test.describe('Antecipação interna', () => {
         {
           id: 'ant_draft',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           recebedor_id: 'recv_1',
           requested_amount_centavos: 20_000,
           available_amount_centavos: 500_000,

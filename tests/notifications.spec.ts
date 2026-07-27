@@ -1,4 +1,4 @@
-﻿import { expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 import { buildEmail, type EmailTemplateId } from '@/lib/email-templates'
 import {
@@ -296,7 +296,7 @@ test.describe('Notificacoes internas', () => {
     })
 
     expect(result.unreadCount).toBe(1)
-    expect(result.notifications.map((notification) => notification.id)).toEqual(['notif_read_new', 'notif_unread_old'])
+    expect(result.notifications.map((notification: { id: string }) => notification.id)).toEqual(['notif_read_new', 'notif_unread_old'])
     expect(result.notifications[0]).toMatchObject({
       id: 'notif_read_new',
       read: true,

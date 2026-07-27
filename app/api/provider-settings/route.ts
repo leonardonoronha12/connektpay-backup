@@ -1,11 +1,9 @@
 import {
-  getFinancialProvider,
+  getFinancialEnvironment,
   getFinancialProviderEnvironment,
-  getProviderCapabilities,
   isSupabaseConfigured,
   isSupabaseServiceConfigured,
 } from '@/lib/env'
-import { getProviderLabel } from '@/lib/acquirer/provider-id'
 import { insertAuditLog } from '@/lib/audit-log'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -45,11 +43,10 @@ type ProviderSettingsRuntimeFields = {
   updated_at: string | null
 }
 
-function buildProviderCapabilities() {
-  const providerId = getFinancialProvider()
-  const capabilities = getProviderCapabilities(providerId)
+function buildProviderCapabilities(runtime: ReturnType<typeof getFinancialEnvironment>) {
+  const capabilities = runtime.capabilities
   return {
-    provider_id: providerId,
+    provider_id: runtime.providerId,
     provider_name: capabilities.providerName,
     credentials_configured: capabilities.credentialsConfigured,
     payment_links_enabled: capabilities.paymentLinks,
@@ -65,12 +62,20 @@ function buildProviderCapabilities() {
 }
 
 function withRuntimeMeta(settings: ProviderSettingsRuntimeFields) {
+  const runtime = getFinancialEnvironment()
   return {
     ...settings,
-    environment: getFinancialProviderEnvironment(),
-    provider_id: getFinancialProvider(),
-    provider_label: getProviderLabel(getFinancialProvider()),
-    capabilities: buildProviderCapabilities(),
+    environment: runtime.environment,
+    base_url: runtime.baseUrl,
+    webhook_url: runtime.webhookUrl,
+    provider_id: runtime.providerId,
+    provider_label: runtime.providerLabel,
+    public_base_url: runtime.publicBaseUrl,
+    public_app_id_configured: Boolean(runtime.publicAppId),
+    managed_by_deployment: true,
+    runtime_source: runtime.runtimeSource,
+    runtime_warnings: runtime.warnings,
+    capabilities: buildProviderCapabilities(runtime),
   }
 }
 
@@ -129,7 +134,12 @@ export async function GET(request: Request) {
           { key: 'provider_label', header: 'provider_label' },
           { key: 'environment', header: 'environment' },
           { key: 'base_url', header: 'base_url' },
+          { key: 'public_base_url', header: 'public_base_url' },
           { key: 'webhook_url', header: 'webhook_url' },
+          { key: 'public_app_id_configured', header: 'public_app_id_configured' },
+          { key: 'managed_by_deployment', header: 'managed_by_deployment' },
+          { key: 'runtime_source', header: 'runtime_source' },
+          { key: 'runtime_warnings', header: 'runtime_warnings' },
           { key: 'timeout_seconds', header: 'timeout_seconds' },
           { key: 'status', header: 'status' },
           { key: 'last_sync_at', header: 'last_sync_at' },
@@ -153,7 +163,12 @@ export async function GET(request: Request) {
             provider_label: payload.provider_label ?? '',
             environment: payload.environment ?? '',
             base_url: payload.base_url ?? '',
+            public_base_url: payload.public_base_url ?? '',
             webhook_url: payload.webhook_url ?? '',
+            public_app_id_configured: Boolean(payload.public_app_id_configured),
+            managed_by_deployment: Boolean(payload.managed_by_deployment),
+            runtime_source: payload.runtime_source ?? '',
+            runtime_warnings: JSON.stringify(payload.runtime_warnings ?? []),
             timeout_seconds: payload.timeout_seconds ?? '',
             status: payload.status ?? '',
             last_sync_at: payload.last_sync_at ?? '',
@@ -196,13 +211,19 @@ export async function PUT(request: Request) {
   try {
     const ctx = await requireSessionOrgContext()
     assertRole(ctx.role, ['owner', 'super_admin'])
-    const body = (await request.json().catch(() => null)) as null | {
-      environment?: 'sandbox' | 'production'
-      base_url?: string | null
-      webhook_url?: string | null
-      timeout_seconds?: number
-    }
+    const body = (await request.json().catch(() => null)) as null | { timeout_seconds?: number; environment?: unknown; base_url?: unknown; webhook_url?: unknown }
     if (!body) return json({ error: 'Invalid body' }, { status: 400 })
+    if (typeof body.environment !== 'undefined' || typeof body.base_url !== 'undefined' || typeof body.webhook_url !== 'undefined') {
+      return json(
+        {
+          error: 'Ambiente, endpoint base e webhook são controlados exclusivamente pela configuração server-side do deployment.',
+        },
+        { status: 400 },
+      )
+    }
+    if (typeof body.timeout_seconds !== 'number' || !Number.isInteger(body.timeout_seconds) || body.timeout_seconds <= 0) {
+      return json({ error: 'Invalid timeout_seconds' }, { status: 400 })
+    }
 
     const supabase = isSupabaseServiceConfigured() ? getSupabaseAdminClient() : await getSupabaseServerClient()
     const before = await getOrCreateProviderSettings(supabase, ctx.organizationId)
@@ -210,10 +231,7 @@ export async function PUT(request: Request) {
     const { data, error } = await supabase
       .from('provider_settings')
       .update({
-        ...(body.environment ? { environment: body.environment } : null),
-        ...(typeof body.base_url !== 'undefined' ? { base_url: body.base_url } : null),
-        ...(typeof body.webhook_url !== 'undefined' ? { webhook_url: body.webhook_url } : null),
-        ...(typeof body.timeout_seconds === 'number' ? { timeout_seconds: body.timeout_seconds } : null),
+        timeout_seconds: body.timeout_seconds,
       })
       .eq('organization_id', ctx.organizationId)
       .select('environment, base_url, webhook_url, timeout_seconds, retry_policy, status, last_sync_at, created_at, updated_at')

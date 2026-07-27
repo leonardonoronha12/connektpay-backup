@@ -367,14 +367,22 @@ function createSplitSeed(overrides?: {
   secondReceiverOrganizationId?: string
   secondReceiverStatus?: string
   secondReceiverKycStatus?: string
+  provider?: string
+  providerEnvironment?: string
+  secondReceiverProviderEnvironment?: string
 }) {
   const paymentLinkId = overrides?.paymentLinkId ?? 'pl_1'
+  const provider = overrides?.provider ?? 'pagarme'
+  const providerEnvironment = overrides?.providerEnvironment ?? 'sandbox'
   return {
     pay_taxa_config: [{ organization_id: 'org_1', fee_fixed_amount: 0, fee_percentage_bps: 0, min_fee_amount: null, max_fee_amount: null, status: 'active' }],
     receivers: [
       {
         id: 'recv_main',
         organization_id: 'org_1',
+        provider,
+        provider_environment: providerEnvironment,
+        provider_receiver_id: 'prov_recv_main',
         provider_reference: 'prov_recv_main',
         status: 'active',
         kyc_status: 'approved',
@@ -383,6 +391,9 @@ function createSplitSeed(overrides?: {
       {
         id: 'recv_partner',
         organization_id: overrides?.secondReceiverOrganizationId ?? 'org_1',
+        provider,
+        provider_environment: overrides?.secondReceiverProviderEnvironment ?? providerEnvironment,
+        provider_receiver_id: 'prov_recv_partner',
         provider_reference: 'prov_recv_partner',
         status: overrides?.secondReceiverStatus ?? 'active',
         kyc_status: overrides?.secondReceiverKycStatus ?? 'approved',
@@ -429,6 +440,7 @@ test.describe('payments internal phase 2', () => {
       customer: { name: 'Cliente Teste', email: 'cliente@teste.com', document: '12345678901' },
       customerId: 'cust_1',
       provider: 'pagarme',
+      providerEnvironment: 'sandbox',
       metadata: { attempt_id: 'attempt_1' },
       explicitIdempotencyKey: 'idem-1',
       requestId: 'req-1',
@@ -477,6 +489,7 @@ test.describe('payments internal phase 2', () => {
       customer: { email: 'cliente@teste.com', document: '12345678901' },
       customerId: 'cust_1',
       provider: 'pagarme',
+      providerEnvironment: 'sandbox',
       explicitIdempotencyKey: 'same-attempt',
       phase2ProviderErrorCode: 'provider_phase_pending',
       phase2ProviderErrorMessage: 'Provider ainda não habilitado nesta fase.',
@@ -490,6 +503,7 @@ test.describe('payments internal phase 2', () => {
       customer: { email: 'cliente@teste.com', document: '12345678901' },
       customerId: 'cust_1',
       provider: 'pagarme',
+      providerEnvironment: 'sandbox',
       explicitIdempotencyKey: 'same-attempt',
       phase2ProviderErrorCode: 'provider_phase_pending',
       phase2ProviderErrorMessage: 'Provider ainda não habilitado nesta fase.',
@@ -513,6 +527,7 @@ test.describe('payments internal phase 2', () => {
       customer: { email: 'cliente@teste.com' },
       customerId: 'cust_1',
       provider: 'pagarme',
+      providerEnvironment: 'sandbox',
       explicitIdempotencyKey: 'attempt-provider-error',
       phase2ProviderErrorCode: 'provider_phase_pending',
       phase2ProviderErrorMessage: 'Provider ainda não habilitado nesta fase.',
@@ -529,6 +544,7 @@ test.describe('payments internal phase 2', () => {
       organizationId: 'org_1',
       paymentLinkId: 'pl_1',
       provider: 'pagarme',
+      providerEnvironment: 'sandbox',
       method: 'pix',
       amount: 10000,
       currency: 'BRL',
@@ -542,6 +558,7 @@ test.describe('payments internal phase 2', () => {
       organizationId: 'org_1',
       paymentLinkId: 'pl_1',
       provider: 'pagarme',
+      providerEnvironment: 'sandbox',
       method: 'pix',
       amount: 10000,
       currency: 'BRL',
@@ -554,6 +571,38 @@ test.describe('payments internal phase 2', () => {
     expect(first).toBe(second)
   })
 
+  test('gera idempotency key diferente entre sandbox e produção', async () => {
+    const sandboxKey = buildInternalPaymentIdempotencyKey({
+      organizationId: 'org_1',
+      paymentLinkId: 'pl_1',
+      provider: 'pagarme',
+      providerEnvironment: 'sandbox',
+      method: 'pix',
+      amount: 10000,
+      currency: 'BRL',
+      customer: { email: 'cliente@teste.com', document: '123.456.789-01' },
+      explicitKey: 'attempt_1',
+      requestId: 'req_1',
+      attemptId: 'attempt_1',
+    })
+
+    const productionKey = buildInternalPaymentIdempotencyKey({
+      organizationId: 'org_1',
+      paymentLinkId: 'pl_1',
+      provider: 'pagarme',
+      providerEnvironment: 'production',
+      method: 'pix',
+      amount: 10000,
+      currency: 'BRL',
+      customer: { email: 'cliente@teste.com', document: '123.456.789-01' },
+      explicitKey: 'attempt_1',
+      requestId: 'req_1',
+      attemptId: 'attempt_1',
+    })
+
+    expect(sandboxKey).not.toBe(productionKey)
+  })
+
   test('valida criação normal do split snapshot', async () => {
     const supabase = createMockSupabase(createSplitSeed())
     const result = await buildInternalSplitSnapshot({
@@ -561,6 +610,8 @@ test.describe('payments internal phase 2', () => {
       organizationId: 'org_1',
       paymentLinkId: 'pl_1',
       grossAmount: 10000,
+      provider: 'pagarme',
+      providerEnvironment: 'sandbox',
     })
 
     expect(result.splitSnapshot.gross_amount).toBe(10000)
@@ -579,6 +630,8 @@ test.describe('payments internal phase 2', () => {
         organizationId: 'org_1',
         paymentLinkId: 'pl_1',
         grossAmount: 10000,
+        provider: 'pagarme',
+        providerEnvironment: 'sandbox',
       }),
     ).rejects.toMatchObject({ code: 'split_invalid_receiver' })
   })
@@ -592,6 +645,8 @@ test.describe('payments internal phase 2', () => {
         organizationId: 'org_1',
         paymentLinkId: 'pl_1',
         grossAmount: 10000,
+        provider: 'pagarme',
+        providerEnvironment: 'sandbox',
       }),
     ).rejects.toMatchObject({ code: 'split_total_mismatch' })
   })

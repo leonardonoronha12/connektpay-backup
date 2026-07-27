@@ -1,6 +1,6 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { classifyInternalApiError } from '@/lib/api-error'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { classifyInternalApiError } from '@/lib/api-error'
 import { insertAuditLog } from '@/lib/audit-log'
-import { isInternalReceiversFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialEnvironment, isInternalReceiversFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import { getSupabaseServerClient } from '@/lib/supabase-server'
@@ -52,12 +52,15 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
     if (!body) return json({ error: 'Corpo da solicitacao invalido.' }, { status: 400 })
 
     const supabase = isSupabaseServiceConfigured() ? getSupabaseAdminClient() : await getSupabaseServerClient()
+    const runtime = getFinancialEnvironment()
     const { data: before } = await supabase
       .from('receivers')
       .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider_reference, provider_status, created_at',
+        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, created_at',
       )
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .eq('id', id)
       .maybeSingle()
     if (!before) return json({ error: 'Recebedor nÃ£o encontrado.' }, { status: 404 })
@@ -92,6 +95,8 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
       .select('id')
       .eq('organization_id', ctx.organizationId)
       .eq('document', nextDocument)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .neq('id', id)
       .maybeSingle()
 
@@ -149,9 +154,11 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
         internal_status: internalStatus,
       })
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .eq('id', id)
       .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider_reference, provider_status, created_at',
+        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, created_at',
       )
       .single()
     if (error) return json({ error: 'NÃ£o foi possÃ­vel atualizar o recebedor agora.' }, { status: 500 })
@@ -175,4 +182,3 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
     return json({ error: err.message }, { status: err.status })
   }
 }
-

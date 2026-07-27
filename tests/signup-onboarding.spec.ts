@@ -91,6 +91,7 @@ test('Cadastro cria profiles + organization (idempotente) e permite abrir Dashbo
   expect(createErr, createErr?.message).toBeNull()
   const user = created.user
   expect(user?.id).toBeTruthy()
+  if (!user) throw new Error('Falha ao criar usuário de teste')
 
   let orgId: string | null = null
   try {

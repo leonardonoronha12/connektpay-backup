@@ -1,13 +1,10 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { isSupabaseServiceConfigured } from '@/lib/env'
-import { processWebhookEventRow } from '@/lib/webhook-processor'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getFinancialEnvironment, isSupabaseServiceConfigured } from '@/lib/env'
 import { claimRuntimeSingleFlight, isAuthorizedCronRequest, releaseRuntimeSingleFlight } from '@/lib/runtime-guards'
 import { classifyInternalApiError } from '@/lib/api-error'
-import { processDueRecurringSubscriptions } from '@/lib/subscription-service'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
-import { NextResponse } from 'next/server'
 
 function json(data: unknown, init?: ResponseInit) {
-  return NextResponse.json(data, init)
+  return Response.json(data, init)
 }
 
 function due(attempts: number, updatedAt: string) {
@@ -18,6 +15,12 @@ function due(attempts: number, updatedAt: string) {
   return Number.isFinite(updated) ? updated <= cutoff : true
 }
 
+function hasEnvironmentOverride(payload: unknown) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
+  const body = payload as Record<string, unknown>
+  return typeof body.environment !== 'undefined' || typeof body.provider_environment !== 'undefined' || typeof body.env !== 'undefined'
+}
+
 async function runWorker(request: Request) {
   const startedAt = Date.now()
   try {
@@ -25,6 +28,19 @@ async function runWorker(request: Request) {
     const secret = process.env.CRON_SECRET
     if (!secret) return json({ ok: false, error: 'Cron secret not configured' }, { status: 503 })
     if (!isAuthorizedCronRequest(request, secret)) return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+    const url = new URL(request.url)
+    if (url.searchParams.has('environment') || url.searchParams.has('provider_environment') || url.searchParams.has('env')) {
+      return json({ ok: false, error: 'Environment override is not allowed for this cron route.' }, { status: 400 })
+    }
+    if (request.method !== 'GET') {
+      const body = await request
+        .clone()
+        .json()
+        .catch(() => null)
+      if (hasEnvironmentOverride(body)) {
+        return json({ ok: false, error: 'Environment override is not allowed for this cron route.' }, { status: 400 })
+      }
+    }
 
     const singleFlight = claimRuntimeSingleFlight({ key: 'events:process-pending', ttlMs: 4 * 60_000 })
     if (!singleFlight.claimed) {
@@ -41,6 +57,11 @@ async function runWorker(request: Request) {
 
     try {
       const supabase = getSupabaseAdminClient()
+      const runtime = getFinancialEnvironment()
+      const [{ processDueRecurringSubscriptions }, { processWebhookEventRow }] = await Promise.all([
+        import('@/lib/subscription-service'),
+        import('@/lib/webhook-processor'),
+      ])
       const recurring = await processDueRecurringSubscriptions({
         supabase,
         nowIso: new Date().toISOString(),
@@ -49,7 +70,9 @@ async function runWorker(request: Request) {
 
       const { data, error } = await supabase
         .from('webhook_events')
-        .select('id, organization_id, type, status, attempts, payload, updated_at, next_retry_at')
+        .select('id, organization_id, type, status, attempts, payload, provider, provider_environment, updated_at, next_retry_at')
+        .eq('provider', runtime.providerId)
+        .eq('provider_environment', runtime.environment)
         .in('status', ['pending', 'failed'])
         .order('updated_at', { ascending: true })
         .limit(50)
@@ -79,6 +102,7 @@ async function runWorker(request: Request) {
       return json({
         ok: true,
         recurring,
+        runtime: { provider: runtime.providerId, provider_environment: runtime.environment },
         scanned: (data ?? []).length,
         processed,
         failed,

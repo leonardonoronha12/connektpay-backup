@@ -6,7 +6,7 @@ import { insertAuditLog } from '@/lib/audit-log'
 import { calculateSplitForProvider, markPayTransacaoProviderSuccess, persistSplitSnapshot } from '@/lib/split-service'
 import { mapSplitConfigErrorToUserMessage } from '@/lib/split-service'
 import { sendTransactionalEmail } from '@/lib/email-service'
-import { getFinancialProvider } from '@/lib/env'
+import { getFinancialEnvironment, getFinancialProvider } from '@/lib/env'
 import { createPhase2InternalPayment, type CheckoutPaymentLinkRecord } from '@/lib/payments-internal'
 import { ensurePagarMeRecurringCustomerCard } from '@/lib/pagarme-recurring'
 import {
@@ -255,6 +255,7 @@ export async function createSubscription(input: {
 
   const receiverId = String((plan as any).recebedor_id)
   const providerId = getFinancialProvider()
+  const runtime = getFinancialEnvironment(providerId)
   const createdAt = nowUtcIso()
   const trialDays = Number((plan as any).trial_days ?? 0)
   const cycle = String((plan as any).cycle ?? 'monthly') as PlanCycle
@@ -265,6 +266,8 @@ export async function createSubscription(input: {
     .from('pay_pagador')
     .insert({
       organization_id: input.organizationId,
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       name: input.payer.name,
       email: input.payer.email ?? null,
       document: input.payer.document ?? null,
@@ -282,6 +285,8 @@ export async function createSubscription(input: {
       plano_id: input.planId,
       pagador_id: payerRow.id,
       recebedor_id: receiverId,
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       status: 'pending',
       next_charge_at: initialChargeAt,
       attempts_failed: 0,
@@ -378,6 +383,7 @@ export async function createSubscription(input: {
           },
           customerId: null,
           provider: 'pagarme',
+          providerEnvironment: runtime.environment,
           amount: Number((plan as any).amount_centavos),
           currency: 'BRL',
           metadata: {
@@ -402,6 +408,7 @@ export async function createSubscription(input: {
             internal_transaction_id: internalPayment.transaction.transactionId,
             internal_payment_link_id: paymentLink?.id ?? '',
             idempotency_key: internalPayment.transaction.idempotencyKey,
+            provider_environment: runtime.environment,
             assinatura_id: subRow.id as string,
             plano_id: input.planId,
             recebedor_id: receiverId,
@@ -464,6 +471,8 @@ export async function createSubscription(input: {
         await input.supabase.from('pay_subscription_events').insert({
           organization_id: input.organizationId,
           assinatura_id: subRow.id,
+          provider: runtime.providerId,
+          provider_environment: runtime.environment,
           provider_event_id: null,
           event_type: 'subscription.created',
           payload: {
@@ -478,6 +487,8 @@ export async function createSubscription(input: {
         await input.supabase.from('pay_subscription_events').insert({
           organization_id: input.organizationId,
           assinatura_id: subRow.id,
+          provider: runtime.providerId,
+          provider_environment: runtime.environment,
           provider_event_id: null,
           event_type: 'subscription.created',
           payload: {
@@ -517,6 +528,8 @@ export async function createSubscription(input: {
       await input.supabase.from('pay_subscription_events').insert({
         organization_id: input.organizationId,
         assinatura_id: subRow.id,
+        provider: runtime.providerId,
+        provider_environment: runtime.environment,
         provider_event_id: null,
         event_type: 'subscription.created',
         payload: providerSub,
@@ -576,6 +589,7 @@ export async function cancelSubscription(input: {
   subscriptionId: string
   reason?: string | null
 }) {
+  const runtime = getFinancialEnvironment()
   const { data: before } = await input.supabase.from('pay_assinatura').select('*').eq('organization_id', input.organizationId).eq('id', input.subscriptionId).maybeSingle()
   if (!before) throw new Error('Not found')
   if (String((before as any).status ?? '') === 'canceled') return { subscription: before }
@@ -602,6 +616,8 @@ export async function cancelSubscription(input: {
   await input.supabase.from('pay_subscription_events').insert({
     organization_id: input.organizationId,
     assinatura_id: input.subscriptionId,
+    provider: runtime.providerId,
+    provider_environment: runtime.environment,
     provider_event_id: null,
     event_type: 'subscription.canceled',
     payload: { reason: input.reason ?? null },
@@ -647,6 +663,7 @@ export async function updateSubscriptionAdmin(input: {
   subscriptionId: string
   patch: Partial<{ status: 'pending' | 'past_due' | 'failed'; nextChargeAt: string | null; attemptsFailed: number }>
 }) {
+  const runtime = getFinancialEnvironment()
   const { data: before } = await input.supabase
     .from('pay_assinatura')
     .select('*')
@@ -685,6 +702,8 @@ export async function updateSubscriptionAdmin(input: {
   await input.supabase.from('pay_subscription_events').insert({
     organization_id: input.organizationId,
     assinatura_id: input.subscriptionId,
+    provider: runtime.providerId,
+    provider_environment: runtime.environment,
     provider_event_id: null,
     event_type: 'subscription.updated_admin',
     payload: updates,
@@ -707,12 +726,15 @@ export async function updateSubscriptionAdmin(input: {
 }
 
 export async function getSubscription(input: { supabase: SupabaseLike; organizationId: string; subscriptionId: string }) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await input.supabase
     .from('pay_assinatura')
     .select(
       'id, plano_id, pagador_id, recebedor_id, status, next_charge_at, attempts_failed, acquirer_subscription_id, last_charge_at, canceled_at, created_at, updated_at, plano:pay_plano(name, amount_centavos, cycle), pagador:pay_pagador(name, email)',
     )
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('id', input.subscriptionId)
     .maybeSingle()
   if (error) throw new Error('Failed to load subscription')
@@ -722,6 +744,8 @@ export async function getSubscription(input: { supabase: SupabaseLike; organizat
     .from('pay_subscription_events')
     .select('id, event_type, created_at')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('assinatura_id', input.subscriptionId)
     .order('created_at', { ascending: false })
     .limit(50)
@@ -730,12 +754,15 @@ export async function getSubscription(input: { supabase: SupabaseLike; organizat
 }
 
 export async function listSubscriptions(input: { supabase: SupabaseLike; organizationId: string }) {
+  const runtime = getFinancialEnvironment()
   let { data, error } = await input.supabase
     .from('pay_assinatura')
     .select(
       'id, status, next_charge_at, attempts_failed, created_at, plano:pay_plano(name, amount_centavos, cycle), pagador:pay_pagador(name, email)',
     )
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -744,6 +771,8 @@ export async function listSubscriptions(input: { supabase: SupabaseLike; organiz
       .from('pay_assinatura')
       .select('id, status, next_charge_at, attempts_failed, created_at, plano_id, pagador_id')
       .eq('organization_id', input.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .order('created_at', { ascending: false })
       .limit(200)
     data = fallback.data as any
@@ -755,21 +784,30 @@ export async function listSubscriptions(input: { supabase: SupabaseLike; organiz
 }
 
 export async function calculateMRR(input: { supabase: SupabaseLike; organizationId: string }) {
+  const runtime = getFinancialEnvironment()
   const { data: plans } = await input.supabase.from('pay_plano').select('id, amount_centavos, cycle').eq('organization_id', input.organizationId)
   const map = new Map<string, { amountCents: number; cycle: PlanCycle }>()
   for (const p of plans ?? []) map.set(String((p as any).id), { amountCents: Number((p as any).amount_centavos ?? 0), cycle: String((p as any).cycle ?? 'monthly') as PlanCycle })
 
-  const { data: subs } = await input.supabase.from('pay_assinatura').select('plano_id, status').eq('organization_id', input.organizationId)
+  const { data: subs } = await input.supabase
+    .from('pay_assinatura')
+    .select('plano_id, status')
+    .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
   const mrr = calculateMRRCents({ plansById: map, subscriptions: (subs ?? []).map((s: any) => ({ planoId: String(s.plano_id), status: String(s.status ?? '') })) })
   return { mrrCents: mrr }
 }
 
 export async function calculateChurn(input: { supabase: SupabaseLike; organizationId: string; windowDays?: number }) {
   const windowDays = typeof input.windowDays === 'number' && Number.isFinite(input.windowDays) && input.windowDays > 0 ? Math.round(input.windowDays) : 30
+  const runtime = getFinancialEnvironment()
   const { data: subs } = await input.supabase
     .from('pay_assinatura')
     .select('status, canceled_at, created_at')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
   const churn = calculateChurnRate({
     subscriptions: (subs ?? []).map((s: any) => ({ status: String(s.status ?? ''), canceledAt: s.canceled_at ? String(s.canceled_at) : null, createdAt: s.created_at ? String(s.created_at) : null })),
     windowDays,
@@ -785,6 +823,7 @@ export async function applyDunningOnFailure(input: {
   providerEventId: string | null
   payload: unknown
 }) {
+  const runtime = getFinancialEnvironment()
   const { data: sub } = await input.supabase
     .from('pay_assinatura')
     .select('id, status, attempts_failed, acquirer_subscription_id')
@@ -798,6 +837,8 @@ export async function applyDunningOnFailure(input: {
   await input.supabase.from('pay_subscription_events').insert({
     organization_id: input.organizationId,
     assinatura_id: input.subscriptionId,
+    provider: runtime.providerId,
+    provider_environment: runtime.environment,
     provider_event_id: input.providerEventId,
     event_type: 'recurring.charge.failed',
     payload: input.payload,
@@ -808,6 +849,8 @@ export async function applyDunningOnFailure(input: {
     await input.supabase.from('pay_subscription_events').insert({
       organization_id: input.organizationId,
       assinatura_id: input.subscriptionId,
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       provider_event_id: null,
       event_type: 'dunning.notify',
       payload: { attempts_failed: attempts },
@@ -827,6 +870,8 @@ export async function applyDunningOnFailure(input: {
     await input.supabase.from('pay_subscription_events').insert({
       organization_id: input.organizationId,
       assinatura_id: input.subscriptionId,
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       provider_event_id: null,
       event_type: 'dunning.cancel',
       payload: { attempts_failed: attempts },
@@ -847,10 +892,13 @@ export async function ensureRecurringChargeSnapshot(input: {
   receiverId: string
   providerPayload: unknown
 }) {
+  const runtime = getFinancialEnvironment()
   const { data: existing } = await input.supabase
     .from('pay_transacao')
     .select('transaction_id')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('provider_reference', input.providerPaymentId)
     .limit(1)
     .maybeSingle()
@@ -866,6 +914,8 @@ export async function ensureRecurringChargeSnapshot(input: {
       currency: 'BRL',
       method: 'card',
       status: 'created',
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       provider_reference: input.providerPaymentId,
       provider_payload: input.providerPayload ?? {},
       public_token: null,
@@ -889,6 +939,8 @@ export async function ensureRecurringChargeSnapshot(input: {
   await input.supabase.from('pay_subscription_events').insert({
     organization_id: input.organizationId,
     assinatura_id: input.subscriptionId,
+    provider: runtime.providerId,
+    provider_environment: runtime.environment,
     provider_event_id: null,
     event_type: 'recurring.charge.snapshot',
     payload: { provider_payment_id: input.providerPaymentId, transaction_id: tx.id, occurred_at: input.occurredAtIso },
@@ -923,6 +975,7 @@ export async function processDueRecurringSubscriptions(input: {
   limit?: number
 }) {
   const providerId = getFinancialProvider()
+  const runtime = getFinancialEnvironment(providerId)
   if (providerId !== 'pagarme') {
     return { scanned: 0, processed: 0, charged: 0, failed: 0, skipped: 0 }
   }
@@ -932,8 +985,10 @@ export async function processDueRecurringSubscriptions(input: {
   const { data: dueSubscriptions, error } = await input.supabase
     .from('pay_assinatura')
     .select(
-      'id, organization_id, plano_id, pagador_id, recebedor_id, status, next_charge_at, attempts_failed, billing_cycles_completed, acquirer_subscription_id, provider_first_order_id, provider_first_charge_id',
+      'id, organization_id, plano_id, pagador_id, recebedor_id, status, provider, provider_environment, next_charge_at, attempts_failed, billing_cycles_completed, acquirer_subscription_id, provider_first_order_id, provider_first_charge_id',
     )
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .in('status', ['active', 'pending', 'past_due'])
     .lte('next_charge_at', nowIso)
     .order('next_charge_at', { ascending: true })
@@ -942,6 +997,10 @@ export async function processDueRecurringSubscriptions(input: {
   if (error) throw new Error('Failed to load due recurring subscriptions')
 
   const rows = Array.isArray(dueSubscriptions) ? dueSubscriptions : []
+  if (!rows.length) {
+    return { scanned: 0, processed: 0, charged: 0, failed: 0, skipped: 0 }
+  }
+
   const provider = getAcquirerProvider()
   let processed = 0
   let charged = 0
@@ -1018,6 +1077,7 @@ export async function processDueRecurringSubscriptions(input: {
         },
         customerId: null,
         provider: 'pagarme',
+        providerEnvironment: runtime.environment,
         amount: Number((plan as any).amount_centavos ?? 0),
         currency: 'BRL',
         metadata: {
@@ -1059,6 +1119,7 @@ export async function processDueRecurringSubscriptions(input: {
           internal_transaction_id: internalPayment.transaction.transactionId,
           internal_payment_link_id: paymentLink?.id ?? '',
           idempotency_key: internalPayment.transaction.idempotencyKey,
+          provider_environment: runtime.environment,
           assinatura_id: subscriptionId,
           plano_id: String((plan as any).id),
           recebedor_id: String((row as any).recebedor_id),
@@ -1095,6 +1156,8 @@ export async function processDueRecurringSubscriptions(input: {
       await input.supabase.from('pay_subscription_events').insert({
         organization_id: organizationId,
         assinatura_id: subscriptionId,
+        provider: runtime.providerId,
+        provider_environment: runtime.environment,
         provider_event_id: null,
         event_type: 'recurring.charge.created',
         payload: {
@@ -1173,6 +1236,8 @@ export async function processDueRecurringSubscriptions(input: {
       await input.supabase.from('pay_subscription_events').insert({
         organization_id: organizationId,
         assinatura_id: subscriptionId,
+        provider: runtime.providerId,
+        provider_environment: runtime.environment,
         provider_event_id: null,
         event_type: 'recurring.charge.error',
         payload: {

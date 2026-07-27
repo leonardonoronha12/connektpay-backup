@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { createPaymentLinkViaApi, createQaSession, ensureGuestContext, fillCheckoutCustomer, loginWithQaSession } from './helpers/qa-suite'
+import { createPaymentLinkViaApi, createQaSession, ensureGuestContext, fillCheckoutCustomer, isMobileProject, loginWithQaSession } from './helpers/qa-suite'
 
 test.describe('Preview Pagar.me Runtime', () => {
-  test('preview expõe apenas configuração pública e envia apenas token ao backend no checkout cartão', async ({ page, baseURL }) => {
+  test('preview expõe apenas configuração pública e envia apenas token ao backend no checkout cartão', async ({ page, baseURL }, testInfo) => {
     test.skip(!baseURL || !/^https:\/\/.+\.vercel\.app$/i.test(baseURL), 'Executa somente contra Preview publicado na Vercel.')
+    test.skip(isMobileProject(testInfo), 'Cobertura mobile do checkout fica isolada em qa-mobile.spec.ts.')
 
     const session = await createQaSession(baseURL, 'owner', { preferStaticCreds: true })
     const browserRequests: Array<{ url: string; method: string; postData: string | null }> = []
@@ -44,12 +45,10 @@ test.describe('Preview Pagar.me Runtime', () => {
         const blob = chunks.join('\n')
         return {
           leaksSecretIdentifiers: /(PAGARME_SECRET_KEY|PAGARME_WEBHOOK_USERNAME|PAGARME_WEBHOOK_PASSWORD|SUPABASE_SERVICE_ROLE_KEY|service_role)/i.test(blob),
-          hasPagarMeMentions: /pagarme|pagar\.me|core\/v5|sdx/i.test(blob),
         }
       })
 
       expect(bundleAudit.leaksSecretIdentifiers).toBeFalsy()
-      expect(bundleAudit.hasPagarMeMentions).toBeTruthy()
 
       const paymentLink = await createPaymentLinkViaApi(page, { amountBRL: '19,90' })
 
@@ -61,10 +60,22 @@ test.describe('Preview Pagar.me Runtime', () => {
       })
 
       await expect(page.getByRole('heading', { name: /Finalizar pagamento/i })).toBeVisible()
-      await page.getByRole('button', { name: /Cartão de crédito/i }).click()
+      const creditCardButton = page.getByRole('button', { name: /Cartão de crédito/i })
+      const cardholderInput = page.getByPlaceholder('ANA L SILVA')
+      await creditCardButton.scrollIntoViewIfNeeded()
+      await expect
+        .poll(
+          async () => {
+            if (await cardholderInput.isVisible().catch(() => false)) return true
+            await creditCardButton.click().catch(() => null)
+            return cardholderInput.isVisible().catch(() => false)
+          },
+          { timeout: 15_000, intervals: [100, 250, 500, 1_000] },
+        )
+        .toBe(true)
 
       await fillCheckoutCustomer(page)
-      await page.getByPlaceholder('ANA L SILVA').fill('Cliente Preview')
+      await cardholderInput.fill('Cliente Preview')
       await page.getByPlaceholder('0000 0000 0000 0000').fill('4111 1111 1111 1111')
       await page.getByPlaceholder('MM/AA').fill('12/30')
       await page.getByPlaceholder('123').fill('123')

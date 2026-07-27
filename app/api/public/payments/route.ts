@@ -1,7 +1,7 @@
 import { getAcquirerProvider } from '@/lib/acquirer'
 import { mapProviderErrorToUserMessage } from '@/lib/acquirer/provider-error'
 import type { CreatePaymentRequest } from '@/lib/acquirer/types'
-import { getFinancialProvider, getProviderCapabilities, isProviderConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialEnvironment, getFinancialProvider, getProviderCapabilities, isProviderConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { appendLedgerEntryAdmin } from '@/lib/ledger-admin'
 import { checkPublicRateLimit } from '@/lib/public-rate-limit'
@@ -59,10 +59,13 @@ function normalizeProviderCardPayload(
 
 async function ensureSaleLedgerOnce(input: { organizationId: string; transactionId: string; amount: number }) {
   const supabase = getSupabaseAdminClient()
+  const runtime = getFinancialEnvironment()
   const { data: existingSale } = await supabase
     .from('ledger_entries')
     .select('id')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('transaction_id', input.transactionId)
     .eq('type', 'sale')
     .limit(1)
@@ -82,6 +85,7 @@ async function ensureSaleLedgerOnce(input: { organizationId: string; transaction
 export async function POST(request: Request) {
   if (!isSupabaseServiceConfigured()) return json({ error: 'Funcionalidade indisponÃ­vel no momento.' }, { status: 503 })
   const providerId = getFinancialProvider()
+  const runtime = getFinancialEnvironment(providerId)
   const capabilities = getProviderCapabilities(providerId)
   if (!capabilities.credentialsConfigured || !isProviderConfigured(providerId)) {
     return json({ error: 'O provedor financeiro ainda nÃ£o estÃ¡ configurado.' }, { status: 503 })
@@ -187,6 +191,8 @@ export async function POST(request: Request) {
       currency: 'BRL',
       method: body.method,
       status: 'created',
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       provider_reference: null,
       provider_payload: {},
       public_token: crypto.randomUUID(),
@@ -247,7 +253,12 @@ export async function POST(request: Request) {
     method: body.method,
     description: body.description ?? paymentLink?.description ?? paymentLink?.name ?? 'Pagamento',
     customer: body.customer,
-    metadata: { ...(body.metadata ?? {}), transaction_id: transactionId, ...(paymentLink?.id ? { payment_link_id: paymentLink.id as string, slug: paymentLink.slug as string } : null) },
+    metadata: {
+      ...(body.metadata ?? {}),
+      transaction_id: transactionId,
+      provider_environment: runtime.environment,
+      ...(paymentLink?.id ? { payment_link_id: paymentLink.id as string, slug: paymentLink.slug as string } : null),
+    },
     installments: typeof body.installments === 'number' ? body.installments : undefined,
     card: normalizedCard ?? undefined,
     split: providerSplit.receivers.map((r) => ({ receiverId: r.receiverId, amount: r.amount })),
@@ -340,4 +351,3 @@ export async function POST(request: Request) {
 
   return json({ transactionId, transactionPublicToken, payment })
 }
-

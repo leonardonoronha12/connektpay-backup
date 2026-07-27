@@ -1,4 +1,5 @@
 import { appendLedgerEntryAdmin } from '@/lib/ledger-admin'
+import { getFinancialEnvironment } from '@/lib/env'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import {
   calculateSplit,
@@ -19,6 +20,17 @@ export { calculateSplit, createSplitPayloadForMyGateway, mapMyGatewayErrorToUser
 
 export async function ensurePayLedgerFromSplitOnce(input: { organizationId: string; transactionId: string }) {
   const supabase = getSupabaseAdminClient()
+  const { data: tx } = await supabase
+    .from('transactions')
+    .select('provider, provider_environment')
+    .eq('organization_id', input.organizationId)
+    .eq('id', input.transactionId)
+    .maybeSingle()
+  const provider = typeof (tx as any)?.provider === 'string' && (tx as any).provider.trim() ? String((tx as any).provider) : getFinancialEnvironment().providerId
+  const providerEnvironment =
+    typeof (tx as any)?.provider_environment === 'string' && (tx as any).provider_environment.trim()
+      ? String((tx as any).provider_environment)
+      : getFinancialEnvironment().environment
   const { data: splits } = await supabase
     .from('pay_split')
     .select('kind, receiver_id, amount')
@@ -37,6 +49,8 @@ export async function ensurePayLedgerFromSplitOnce(input: { organizationId: stri
         .from('ledger_entries')
         .select('id')
         .eq('organization_id', input.organizationId)
+        .eq('provider', provider)
+        .eq('provider_environment', providerEnvironment)
         .eq('transaction_id', input.transactionId)
         .eq('type', 'fee')
         .eq('origin', 'connekt_fee')
@@ -50,6 +64,8 @@ export async function ensurePayLedgerFromSplitOnce(input: { organizationId: stri
           direction: 'debit',
           amount,
           origin: 'connekt_fee',
+          provider,
+          providerEnvironment,
         })
       }
     }
@@ -60,6 +76,8 @@ export async function ensurePayLedgerFromSplitOnce(input: { organizationId: stri
         .from('ledger_entries')
         .select('id')
         .eq('organization_id', input.organizationId)
+        .eq('provider', provider)
+        .eq('provider_environment', providerEnvironment)
         .eq('transaction_id', input.transactionId)
         .eq('type', 'split')
         .eq('origin', origin)
@@ -73,6 +91,8 @@ export async function ensurePayLedgerFromSplitOnce(input: { organizationId: stri
           direction: 'debit',
           amount,
           origin,
+          provider,
+          providerEnvironment,
         })
       }
     }
@@ -99,6 +119,8 @@ export async function ensurePayLedgerFromSplitOnce(input: { organizationId: stri
       ledgerRows.map((r) => ({
         organization_id: input.organizationId,
         transaction_id: input.transactionId,
+        provider,
+        provider_environment: providerEnvironment,
         receiver_id: r.receiver_id,
         type: r.type,
         direction: r.direction,
@@ -153,25 +175,33 @@ export async function loadSplitRules(supabase: any, input: { organizationId: str
 
 export async function loadReceivers(supabase: any, input: { organizationId: string; receiverIds: string[] }): Promise<ReceiverConfig[]> {
   if (!input.receiverIds.length) return []
+  const runtime = getFinancialEnvironment()
   const { data } = await supabase
     .from('receivers')
-    .select('id, provider_reference, status, kyc_status')
+    .select('id, provider, provider_environment, provider_receiver_id, provider_reference, status, kyc_status')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .in('id', input.receiverIds)
   const rows = Array.isArray(data) ? data : []
   return rows.map((r: any) => ({
     id: String(r.id),
-    providerReference: r.provider_reference ? String(r.provider_reference) : null,
+    provider: typeof r.provider === 'string' ? String(r.provider) : null,
+    providerEnvironment: typeof r.provider_environment === 'string' ? String(r.provider_environment) : null,
+    providerReference: r.provider_receiver_id ? String(r.provider_receiver_id) : r.provider_reference ? String(r.provider_reference) : null,
     status: String(r.status ?? 'active'),
     kycStatus: String(r.kyc_status ?? 'pending'),
   }))
 }
 
 export async function pickDefaultReceiver(supabase: any, organizationId: string): Promise<ReceiverConfig | null> {
+  const runtime = getFinancialEnvironment()
   const { data } = await supabase
     .from('receivers')
-    .select('id, provider_reference, status, kyc_status, created_at')
+    .select('id, provider, provider_environment, provider_receiver_id, provider_reference, status, kyc_status, created_at')
     .eq('organization_id', organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('status', 'active')
     .eq('kyc_status', 'approved')
     .order('created_at', { ascending: true })
@@ -180,7 +210,10 @@ export async function pickDefaultReceiver(supabase: any, organizationId: string)
   if (!data) return null
   return {
     id: String((data as any).id),
-    providerReference: (data as any).provider_reference ? String((data as any).provider_reference) : null,
+    provider: typeof (data as any).provider === 'string' ? String((data as any).provider) : null,
+    providerEnvironment: typeof (data as any).provider_environment === 'string' ? String((data as any).provider_environment) : null,
+    providerReference:
+      (data as any).provider_receiver_id ? String((data as any).provider_receiver_id) : (data as any).provider_reference ? String((data as any).provider_reference) : null,
     status: String((data as any).status ?? 'active'),
     kycStatus: String((data as any).kyc_status ?? 'approved'),
   }
@@ -191,6 +224,7 @@ export async function calculateSplitForProvider(
   input: { organizationId: string; paymentLinkId: string | null; grossAmount: bigint | number },
   defaultReceiverId?: string | null,
 ) {
+  const runtime = getFinancialEnvironment()
   const taxConfig = await loadPayTaxaConfig(supabase, input.organizationId)
   const rules = await loadSplitRules(supabase, { organizationId: input.organizationId, paymentLinkId: input.paymentLinkId })
   const receiverIds = rules.map((r) => r.receiverId)
@@ -202,8 +236,14 @@ export async function calculateSplitForProvider(
     rules,
     defaultReceiverId: fallback?.id ?? null,
   })
-  const providerSplit = createSplitPayloadForMyGateway({ split, receivers: receivers.length ? receivers : fallback ? [fallback] : [] })
-  return { split, providerSplit, receivers: receivers.length ? receivers : fallback ? [fallback] : [] }
+  const scopedReceivers = receivers.length ? receivers : fallback ? [fallback] : []
+  const providerSplit = createSplitPayloadForMyGateway({
+    split,
+    receivers: scopedReceivers,
+    providerId: runtime.providerId,
+    providerEnvironment: runtime.environment,
+  })
+  return { split, providerSplit, receivers: scopedReceivers }
 }
 
 export async function persistSplitSnapshot(input: {
@@ -216,12 +256,15 @@ export async function persistSplitSnapshot(input: {
   providerSplit: MyGatewaySplitPayload
 }) {
   const supabase = input.supabase
+  const runtime = getFinancialEnvironment()
   await supabase.from('pay_transacao').upsert(
     [
       {
         transaction_id: input.transactionId,
         organization_id: input.organizationId,
         payment_link_id: input.paymentLinkId,
+        provider: runtime.providerId,
+        provider_environment: runtime.environment,
         gross_amount: Number(input.split.grossAmount),
         connekt_fee_amount: Number(input.split.connektFeeAmount),
         receiver_total_amount: Number(input.split.receiverTotalAmount),
@@ -237,6 +280,8 @@ export async function persistSplitSnapshot(input: {
     {
       transaction_id: input.transactionId,
       organization_id: input.organizationId,
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       receiver_id: null,
       kind: 'connekt_fee',
       amount: Number(input.split.connektFeeAmount),
@@ -246,6 +291,8 @@ export async function persistSplitSnapshot(input: {
     ...input.split.receivers.map((r) => ({
       transaction_id: input.transactionId,
       organization_id: input.organizationId,
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       receiver_id: r.receiverId,
       kind: 'receiver',
       amount: Number(r.amount),

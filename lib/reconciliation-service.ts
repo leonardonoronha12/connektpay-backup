@@ -1,10 +1,11 @@
 import 'server-only'
 
 import { getAcquirerProvider } from '@/lib/acquirer'
+import { normalizeProviderId } from '@/lib/acquirer/provider-id'
 import { mapProviderErrorToUserMessage as mapNeutralProviderErrorToUserMessage, ProviderError } from '@/lib/acquirer/provider-error'
 import { getOrganizationOwnerEmail } from '@/lib/audit-actor'
 import { insertAuditLog } from '@/lib/audit-log'
-import { getFinancialProvider } from '@/lib/env'
+import { getFinancialEnvironment, getFinancialProvider } from '@/lib/env'
 import { sendTransactionalEmail } from '@/lib/email-service'
 import { getEnabledReconciliationEntityTypes } from '@/lib/reconciliation-config'
 import { classifyDivergence, normalizeInternalStatus, normalizeProviderStatus, sanitizeProviderPayload } from '@/lib/reconciliation-core'
@@ -33,6 +34,8 @@ async function upsertConciliationItem(input: {
   supabase: SupabaseLike
   organizationId: string
   runId: string
+  provider: string
+  providerEnvironment: string
   entityType: string
   entityId: string | null
   providerReference: string | null
@@ -73,6 +76,8 @@ async function upsertConciliationItem(input: {
   const row = {
     organization_id: input.organizationId,
     run_id: input.runId,
+    provider: input.provider,
+    provider_environment: input.providerEnvironment,
     entity_type: input.entityType,
     entity_id: input.entityId,
     provider_reference: input.providerReference,
@@ -106,7 +111,9 @@ export async function createReconciliationRun(input: {
   periodEnd: string
   provider?: string
 }) {
-  const provider = input.provider ?? getFinancialProvider()
+  const runtime = getFinancialEnvironment(normalizeProviderId(input.provider ?? null) ?? getFinancialProvider())
+  const provider = runtime.providerId
+  const providerEnvironment = runtime.environment
   const startedAt = new Date().toISOString()
   const runIns = await input.supabase
     .from('pay_conciliation_runs')
@@ -115,6 +122,7 @@ export async function createReconciliationRun(input: {
       started_at: startedAt,
       status: 'running',
       provider,
+      provider_environment: providerEnvironment,
       period_start: input.periodStart,
       period_end: input.periodEnd,
       created_by: input.actorProfileId,
@@ -128,7 +136,7 @@ export async function createReconciliationRun(input: {
     organization_id: input.organizationId,
     run_id: runId,
     event_type: 'run.started',
-    payload: { period_start: input.periodStart, period_end: input.periodEnd, provider },
+    payload: { period_start: input.periodStart, period_end: input.periodEnd, provider, provider_environment: providerEnvironment },
   })
 
   await insertAuditLog({
@@ -141,7 +149,7 @@ export async function createReconciliationRun(input: {
     entity: 'pay_conciliation_run',
     entityId: runId,
     before: null,
-    after: { provider, period_start: input.periodStart, period_end: input.periodEnd },
+      after: { provider, provider_environment: providerEnvironment, period_start: input.periodStart, period_end: input.periodEnd },
   })
 
   const providerClient = getAcquirerProvider(provider)
@@ -165,6 +173,8 @@ export async function createReconciliationRun(input: {
     provider: providerClient,
     stats,
     actorProfileId: input.actorProfileId,
+    providerId: provider,
+    providerEnvironment,
   })
   if (enabledEntityTypes.includes('anticipation')) {
     await reconcileAnticipations({
@@ -176,6 +186,8 @@ export async function createReconciliationRun(input: {
       provider: providerClient,
       stats,
       actorProfileId: input.actorProfileId,
+      providerId: provider,
+      providerEnvironment,
     })
   }
   if (enabledEntityTypes.includes('payout')) {
@@ -188,6 +200,8 @@ export async function createReconciliationRun(input: {
       provider: providerClient,
       stats,
       actorProfileId: input.actorProfileId,
+      providerId: provider,
+      providerEnvironment,
     })
   }
 
@@ -244,6 +258,8 @@ export async function reconcileTransactions(input: {
   runId: string
   periodStart: string
   periodEnd: string
+  providerId: string
+  providerEnvironment: string
   provider: any
   stats: { checked: number; matched: number; divergent: number; internalSum: number; providerSum: number; diffSum: number; providerErrors: number }
   actorProfileId: string
@@ -252,6 +268,8 @@ export async function reconcileTransactions(input: {
     .from('transactions')
     .select('id, provider_reference, amount, status, created_at')
     .eq('organization_id', input.organizationId)
+    .eq('provider', input.providerId)
+    .eq('provider_environment', input.providerEnvironment)
     .gte('created_at', input.periodStart)
     .lte('created_at', input.periodEnd)
     .order('created_at', { ascending: false })
@@ -270,6 +288,8 @@ export async function reconcileTransactions(input: {
         supabase: input.supabase,
         organizationId: input.organizationId,
         runId: input.runId,
+        provider: input.providerId,
+        providerEnvironment: input.providerEnvironment,
         entityType: 'transaction',
         entityId: String((t as any).id),
         providerReference: null,
@@ -314,6 +334,8 @@ export async function reconcileTransactions(input: {
         supabase: input.supabase,
         organizationId: input.organizationId,
         runId: input.runId,
+        provider: input.providerId,
+        providerEnvironment: input.providerEnvironment,
         entityType: 'transaction',
         entityId: String((t as any).id),
         providerReference: providerRef,
@@ -361,6 +383,8 @@ export async function reconcileTransactions(input: {
       supabase: input.supabase,
       organizationId: input.organizationId,
       runId: input.runId,
+      provider: input.providerId,
+      providerEnvironment: input.providerEnvironment,
       entityType: 'transaction',
       entityId: String((t as any).id),
       providerReference: providerRef,
@@ -402,6 +426,8 @@ export async function reconcileAnticipations(input: {
   runId: string
   periodStart: string
   periodEnd: string
+  providerId: string
+  providerEnvironment: string
   provider: any
   stats: { checked: number; matched: number; divergent: number; internalSum: number; providerSum: number; diffSum: number; providerErrors: number }
   actorProfileId: string
@@ -410,6 +436,8 @@ export async function reconcileAnticipations(input: {
     .from('pay_antecipacao')
     .select('id, requested_amount_centavos, status, provider_reference, acquirer_anticipation_id, created_at')
     .eq('organization_id', input.organizationId)
+    .eq('provider', input.providerId)
+    .eq('provider_environment', input.providerEnvironment)
     .gte('created_at', input.periodStart)
     .lte('created_at', input.periodEnd)
     .order('created_at', { ascending: false })
@@ -433,6 +461,8 @@ export async function reconcileAnticipations(input: {
         supabase: input.supabase,
         organizationId: input.organizationId,
         runId: input.runId,
+        provider: input.providerId,
+        providerEnvironment: input.providerEnvironment,
         entityType: 'anticipation',
         entityId: String((a as any).id),
         providerReference: null,
@@ -468,6 +498,8 @@ export async function reconcileAnticipations(input: {
         supabase: input.supabase,
         organizationId: input.organizationId,
         runId: input.runId,
+        provider: input.providerId,
+        providerEnvironment: input.providerEnvironment,
         entityType: 'anticipation',
         entityId: String((a as any).id),
         providerReference: providerRef,
@@ -500,6 +532,8 @@ export async function reconcileAnticipations(input: {
       supabase: input.supabase,
       organizationId: input.organizationId,
       runId: input.runId,
+      provider: input.providerId,
+      providerEnvironment: input.providerEnvironment,
       entityType: 'anticipation',
       entityId: String((a as any).id),
       providerReference: providerRef,
@@ -521,6 +555,8 @@ export async function reconcilePayouts(input: {
   runId: string
   periodStart: string
   periodEnd: string
+  providerId: string
+  providerEnvironment: string
   provider: any
   stats: { checked: number; matched: number; divergent: number; internalSum: number; providerSum: number; diffSum: number; providerErrors: number }
   actorProfileId: string
@@ -529,6 +565,8 @@ export async function reconcilePayouts(input: {
     .from('payouts')
     .select('id, net_amount, gross_amount, status, provider_reference, created_at')
     .eq('organization_id', input.organizationId)
+    .eq('provider', input.providerId)
+    .eq('provider_environment', input.providerEnvironment)
     .eq('is_internal', false)
     .gte('created_at', input.periodStart)
     .lte('created_at', input.periodEnd)
@@ -548,6 +586,8 @@ export async function reconcilePayouts(input: {
         supabase: input.supabase,
         organizationId: input.organizationId,
         runId: input.runId,
+        provider: input.providerId,
+        providerEnvironment: input.providerEnvironment,
         entityType: 'payout',
         entityId: String((p as any).id),
         providerReference: null,
@@ -583,6 +623,8 @@ export async function reconcilePayouts(input: {
         supabase: input.supabase,
         organizationId: input.organizationId,
         runId: input.runId,
+        provider: input.providerId,
+        providerEnvironment: input.providerEnvironment,
         entityType: 'payout',
         entityId: String((p as any).id),
         providerReference: providerRef,
@@ -615,6 +657,8 @@ export async function reconcilePayouts(input: {
       supabase: input.supabase,
       organizationId: input.organizationId,
       runId: input.runId,
+      provider: input.providerId,
+      providerEnvironment: input.providerEnvironment,
       entityType: 'payout',
       entityId: String((p as any).id),
       providerReference: providerRef,
@@ -633,7 +677,7 @@ export async function reconcilePayouts(input: {
 export async function listReconciliationRuns(input: { supabase: SupabaseLike; organizationId: string }) {
   const primary = await input.supabase
     .from('pay_conciliation_runs')
-    .select('id, started_at, finished_at, status, provider, period_start, period_end, total_checked, total_matched, total_divergent, total_difference_centavos')
+    .select('id, started_at, finished_at, status, provider, provider_environment, period_start, period_end, total_checked, total_matched, total_divergent, total_difference_centavos')
     .eq('organization_id', input.organizationId)
     .order('started_at', { ascending: false })
     .limit(50)
@@ -657,6 +701,7 @@ export async function listReconciliationRuns(input: { supabase: SupabaseLike; or
     finished_at: r.finished_at ?? null,
     status: r.status ?? null,
     provider: null,
+    provider_environment: null,
     period_start: null,
     period_end: null,
     total_checked: 0,
@@ -683,7 +728,7 @@ export async function getReconciliationRun(input: { supabase: SupabaseLike; orga
 export async function listReconciliationItems(input: { supabase: SupabaseLike; organizationId: string; runId: string; status?: string | null }) {
   let q = input.supabase
     .from('pay_conciliation_items')
-    .select('id, entity_type, entity_id, provider_reference, internal_status, provider_status, internal_amount_centavos, provider_amount_centavos, difference_centavos, status, reason, resolved_at, created_at')
+    .select('id, provider, provider_environment, entity_type, entity_id, provider_reference, internal_status, provider_status, internal_amount_centavos, provider_amount_centavos, difference_centavos, status, reason, resolved_at, created_at')
     .eq('organization_id', input.organizationId)
     .eq('run_id', input.runId)
     .order('created_at', { ascending: false })
@@ -704,6 +749,8 @@ export async function listReconciliationItems(input: { supabase: SupabaseLike; o
   if (legacy.error) return { items: [] }
   const items = (Array.isArray(legacy.data) ? legacy.data : []).map((it: any) => ({
     id: it.id,
+    provider: null,
+    provider_environment: null,
     entity_type: null,
     entity_id: null,
     provider_reference: null,
@@ -761,7 +808,18 @@ export async function reprocessConciliationItem(input: { supabase: SupabaseLike;
   const providerRef = (item as any).provider_reference as string | null
   if (!providerRef) throw new Error('Missing provider reference')
 
-  const provider = getAcquirerProvider()
+  const runtime = getFinancialEnvironment()
+  const itemProvider = typeof (item as any).provider === 'string' && (item as any).provider.trim() ? String((item as any).provider) : runtime.providerId
+  const itemProviderEnvironment =
+    typeof (item as any).provider_environment === 'string' && (item as any).provider_environment.trim()
+      ? String((item as any).provider_environment)
+      : runtime.environment
+
+  if (itemProvider !== runtime.providerId || itemProviderEnvironment !== runtime.environment) {
+    throw new Error('O item pertence a outro ambiente financeiro e não pode ser reprocessado neste deployment.')
+  }
+
+  const provider = getAcquirerProvider(itemProvider)
   try {
     if (entityType === 'transaction') {
       const pr = await provider.getTransaction({ id: providerRef })

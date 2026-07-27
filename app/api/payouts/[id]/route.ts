@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getFinancialEnvironment, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { appendLedgerEntryAdmin } from '@/lib/ledger-admin'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
@@ -11,6 +11,10 @@ function json(data: unknown, init?: ResponseInit) {
   return NextResponse.json(data, init)
 }
 
+function safeString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
 export async function GET(request: Request, ctxRoute: { params: Promise<{ id: string }> }) {
   if (!isSupabaseConfigured()) return json({ error: 'Funcionalidade indisponÃ­vel no momento.' }, { status: 503 })
   try {
@@ -18,13 +22,16 @@ export async function GET(request: Request, ctxRoute: { params: Promise<{ id: st
     const ctx = await requireSessionOrgContext()
     assertRole(ctx.role, ['owner', 'financeiro', 'super_admin'])
     const supabase = isSupabaseServiceConfigured() ? getSupabaseAdminClient() : await getSupabaseServerClient()
+    const runtime = getFinancialEnvironment()
 
     const { data: payout, error } = await supabase
       .from('payouts')
       .select(
-        'id, receiver_id, gross_amount, fee_amount, net_amount, status, scheduled_for, provider_reference, provider_status, requested_at, paid_at, failed_at, canceled_at, created_at, receiver:receivers(id, name, document, email)',
+        'id, receiver_id, gross_amount, fee_amount, net_amount, status, provider, provider_environment, scheduled_for, provider_reference, provider_status, requested_at, paid_at, failed_at, canceled_at, created_at, receiver:receivers(id, name, document, email)',
       )
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .eq('is_internal', false)
       .eq('id', id)
       .maybeSingle()
@@ -38,6 +45,8 @@ export async function GET(request: Request, ctxRoute: { params: Promise<{ id: st
       .from('payout_events')
       .select('id, event_type, provider_event_id, created_at')
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .eq('payout_id', id)
       .order('created_at', { ascending: false })
       .limit(100)
@@ -59,12 +68,15 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
     assertRole(ctx.role, ['owner', 'financeiro', 'super_admin'])
     const body = (await request.json().catch(() => null)) as null | { status?: string }
     if (!body?.status) return json({ error: 'Missing status' }, { status: 400 })
+    const runtime = getFinancialEnvironment()
 
     const supabase = await getSupabaseServerClient()
     const { data: before } = await supabase
       .from('payouts')
-      .select('id, organization_id, gross_amount, net_amount, status')
+      .select('id, organization_id, gross_amount, net_amount, status, provider, provider_environment, provider_reference')
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .eq('is_internal', false)
       .eq('id', id)
       .maybeSingle()
@@ -81,6 +93,8 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
         ...(body.status === 'canceled' ? { canceled_at: new Date().toISOString() } : null),
       } as any)
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .eq('is_internal', false)
       .eq('id', id)
       .select('id, status, gross_amount, net_amount')
@@ -97,6 +111,8 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
         .from('ledger_entries')
         .select('id')
         .eq('organization_id', ctx.organizationId)
+        .eq('provider', runtime.providerId)
+        .eq('provider_environment', runtime.environment)
         .eq('payout_id', id)
         .eq('type', 'payout')
         .limit(1)
@@ -112,6 +128,9 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
             direction: 'debit',
             amount: amt,
             origin: 'manual',
+            provider: runtime.providerId,
+            providerEnvironment: runtime.environment,
+            providerReference: safeString((before as any).provider_reference),
           })
         }
       }
@@ -120,6 +139,8 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
     await supabase.from('payout_events').insert({
       organization_id: ctx.organizationId,
       payout_id: id,
+      provider: runtime.providerId,
+      provider_environment: runtime.environment,
       event_type: body.status === 'paid' ? 'payout.paid' : body.status === 'failed' ? 'payout.failed' : body.status === 'canceled' ? 'payout.canceled' : 'payout.status_updated',
       provider_event_id: null,
       payload: { status: body.status },

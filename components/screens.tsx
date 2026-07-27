@@ -1601,7 +1601,7 @@ export function DashboardScreen() {
   const activity = useMemo(() => {
     return sortedTxs.slice(0, 6).map((tx) => {
       const customer = tx.customer?.name ?? tx.customer?.email ?? 'â€”'
-      const method = tx.method === 'pix' ? 'PIX' : tx.method === 'card' ? 'CartÃ£o' : String(tx.method ?? 'â€”')
+      const method = tx.method === 'pix' ? 'PIX' : tx.method === 'card' ? 'Cartão' : String(tx.method ?? '—')
       const status = tx.status === 'paid' ? 'Pago' : tx.status === 'failed' ? 'Recusado' : tx.status === 'refunded' ? 'Estornado' : 'Pendente'
       return { id: tx.id, customer, value: Number(tx.amount ?? 0), method, status }
     })
@@ -1611,7 +1611,7 @@ export function DashboardScreen() {
     return sortedTxs.slice(0, 5).map((tx) => {
       const customer = tx.customer?.name ?? tx.customer?.email ?? 'â€”'
       const value = Number(tx.amount ?? 0)
-      const method = tx.method === 'pix' ? 'PIX' : tx.method === 'card' ? 'CartÃ£o' : String(tx.method ?? 'â€”')
+      const method = tx.method === 'pix' ? 'PIX' : tx.method === 'card' ? 'Cartão' : String(tx.method ?? '—')
       const status = tx.status === 'paid' ? 'Pago' : tx.status === 'failed' ? 'Recusado' : tx.status === 'refunded' ? 'Estornado' : 'Pendente'
       const date = tx.created_at ? new Date(tx.created_at as string).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'â€”'
       return { id: tx.id, customer, value, method, status, date }
@@ -1836,7 +1836,7 @@ export function DashboardScreen() {
                 </Td>
                 <td style={{ padding: '13px 20px', borderBottom: `1px solid ${BORDER}` }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: F, fontSize: 12.5, color: MUTED }}>
-                    {tx.method === 'PIX' ? <QrCode size={13} style={{ color: MINT_D }} /> : tx.method === 'CartÃ£o' ? <CreditCard size={13} style={{ color: NAVY }} /> : <FileText size={13} />}
+                    {tx.method === 'PIX' ? <QrCode size={13} style={{ color: MINT_D }} /> : tx.method === 'Cartão' ? <CreditCard size={13} style={{ color: NAVY }} /> : <FileText size={13} />}
                     {tx.method}
                   </span>
                 </td>
@@ -1944,7 +1944,7 @@ export function TransactionsScreen() {
     return rows.map((tx) => {
       const customer = tx.customer?.name ?? tx.customer?.email ?? 'â€”'
       const value = Number(tx.amount ?? 0)
-      const methodLabel = tx.method === 'pix' ? 'PIX' : tx.method === 'card' ? 'CartÃ£o' : String(tx.method ?? 'â€”')
+      const methodLabel = tx.method === 'pix' ? 'PIX' : tx.method === 'card' ? 'Cartão' : String(tx.method ?? '—')
       const date = new Date(tx.created_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
       return { id: tx.id, customer, value, method: methodLabel, status: String(tx.status ?? 'created'), date }
     })
@@ -1998,7 +1998,7 @@ export function TransactionsScreen() {
                 </Td>
                 <td style={{ padding: '13px 20px', borderBottom: `1px solid ${BORDER}` }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: F, fontSize: 12.5, color: MUTED }}>
-                    {tx.method === 'PIX' ? <QrCode size={13} style={{ color: MINT_D }} /> : tx.method === 'CartÃ£o' ? <CreditCard size={13} style={{ color: NAVY }} /> : <FileText size={13} />}
+                    {tx.method === 'PIX' ? <QrCode size={13} style={{ color: MINT_D }} /> : tx.method === 'Cartão' ? <CreditCard size={13} style={{ color: NAVY }} /> : <FileText size={13} />}
                     {tx.method}
                   </span>
                 </td>
@@ -2967,7 +2967,7 @@ export function CheckoutScreen() {
             <div style={{ background: 'white', borderRadius: 13, border: `1px solid ${BORDER}`, padding: 4, display: 'flex' }}>
               {[
                 ...(allowPix ? [{ id: 'pix' as const, label: 'PIX', icon: QrCode }] : []),
-                ...(allowCard ? [{ id: 'card' as const, label: isRecurring ? 'CartÃ£o (assinatura)' : 'CartÃ£o de crÃ©dito', icon: CreditCard }] : []),
+                ...(allowCard ? [{ id: 'card' as const, label: isRecurring ? 'Cartão (assinatura)' : 'Cartão de crédito', icon: CreditCard }] : []),
               ].map(({ id, label, icon: Icon }) => (
                 <button key={id} onClick={() => setMethod(id)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '10px', borderRadius: 10, fontFamily: F, fontWeight: 700, fontSize: 13.5, border: 'none', cursor: 'pointer', transition: 'all .2s', background: method === id ? NAVY : 'transparent', color: method === id ? 'white' : MUTED }}>
                   <Icon size={15} /> {label}
@@ -3008,7 +3008,7 @@ export function CheckoutScreen() {
                   )}
                 </div>
                 <div style={{ background: FAINT, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                  <code style={{ flex: 1, fontFamily: MONO, fontSize: 10.5, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pixCopy ?? 'Gerar cobranÃ§a para exibir o PIX Copia e Cola...'}</code>
+                  <code style={{ flex: 1, fontFamily: MONO, fontSize: 10.5, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pixCopy ?? 'Gerar cobrança para exibir o PIX Copia e Cola...'}</code>
                   <button
                     disabled={!pixCopy}
                     onClick={async () => {
@@ -3044,11 +3044,11 @@ export function CheckoutScreen() {
                 <p style={{ fontFamily: F, fontSize: 12.5, color: MUTED }}>
                   {transactionId ? (
                     <>
-                      Aguardando confirmaÃ§Ã£o em tempo real <strong style={{ color: TEXT }}>#{transactionId.slice(0, 6)}</strong>
+                      Aguardando confirmação em tempo real <strong style={{ color: TEXT }}>#{transactionId.slice(0, 6)}</strong>
                     </>
                   ) : (
                     <>
-                      Clique em <strong style={{ color: TEXT }}>Finalizar pagamento</strong> para gerar a cobranÃ§a
+                      Clique em <strong style={{ color: TEXT }}>Finalizar pagamento</strong> para gerar a cobrança
                     </>
                   )}
                 </p>
@@ -3059,11 +3059,11 @@ export function CheckoutScreen() {
             ) : (
               <div style={{ background: 'white', borderRadius: 16, border: `1px solid ${BORDER}`, padding: '28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
-                  <label style={lbl}>Nome no cartÃ£o</label>
+                  <label style={lbl}>Nome no cartão</label>
                   <input type="text" placeholder="ANA L SILVA" value={cardName} onChange={(e) => setCardName(e.target.value)} style={inp} />
                 </div>
                 <div>
-                  <label style={lbl}>NÃºmero do cartÃ£o</label>
+                  <label style={lbl}>Número do cartão</label>
                   <input type="text" placeholder="0000 0000 0000 0000" value={cardNumber} onChange={(e) => setCardNumber(maskCardNumber(e.target.value))} style={inp} />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -3125,7 +3125,7 @@ export function CheckoutScreen() {
                 email: customerEmail,
                 phone: customerPhone,
                 document: customerDoc,
-              }, { requirePhone: method === 'pix' })
+              }, { requirePhone: checkoutProviderId === 'pagarme' })
               if (!customerValidation.ok) {
                 setError(customerValidation.message)
                 return
@@ -6805,6 +6805,9 @@ export function ProviderScreen() {
             <strong>Estado atual:</strong> {credentialsConfigured ? `Credenciais de ${providerName} detectadas.` : `Credenciais de ${providerName} ausentes.`}{' '}
             Apenas <strong>Auth v2</strong> e <strong>Payment Links</strong> devem aparecer como fluxos externos homologados nesta etapa.
           </Notice>
+          <Notice tone={env === 'sandbox' ? 'warning' : 'info'}>
+            <strong>Ambiente controlado pelo deployment:</strong> o ambiente financeiro, a base URL e o webhook são resolvidos apenas no servidor. Esta tela não permite alternar Sandbox/Produção pelo navegador.
+          </Notice>
           <Notice tone="info">
             <strong>MÃ³dulos externos nÃ£o homologados:</strong> pagamento avulso, KYC externo, split, assinaturas externas, repasses, antecipaÃ§Ã£o e webhooks oficiais continuam dependentes de contrato e/ou homologaÃ§Ã£o adicional.
           </Notice>
@@ -6823,37 +6826,12 @@ export function ProviderScreen() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {(['sandbox', 'production'] as const).map((e) => (
-              <button
+              <div
                 key={e}
-                onClick={async () => {
-                  if (savingProvider) return
-                  const previous = env
-                  setEnv(e)
-                  setSavingProvider(true)
-                  setError(null)
-                  try {
-                    const res = await fetch('/api/provider-settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ environment: e }) })
-                    const json = await res.json().catch(() => null)
-                    if (!res.ok) {
-                      setEnv(previous)
-                      setError(toUserFacingError(json?.error, 'Não foi possível atualizar o ambiente do provedor agora.', '/api/provider-settings'))
-                      return
-                    }
-                    const nextProvider = json?.providerSettings ?? null
-                    setProvider(nextProvider)
-                    setEnv(nextProvider?.environment === 'sandbox' ? 'sandbox' : 'production')
-                  } catch (err) {
-                    logError('ProviderScreen: update environment failed', err)
-                    setEnv(previous)
-                    setError('Não foi possível atualizar o ambiente do provedor agora.')
-                  } finally {
-                    setSavingProvider(false)
-                  }
-                }}
-                style={{ padding: '7px 14px', borderRadius: 8, fontFamily: F, fontWeight: 700, fontSize: 12.5, cursor: savingProvider ? 'default' : 'pointer', border: env === e ? 'none' : `1px solid ${BORDER}`, background: env === e ? (e === 'sandbox' ? '#FFFBEB' : '#ECFDF5') : 'white', color: env === e ? (e === 'sandbox' ? '#D97706' : '#059669') : MUTED, opacity: loading || savingProvider ? 0.7 : 1 }}
+                style={{ padding: '7px 14px', borderRadius: 8, fontFamily: F, fontWeight: 700, fontSize: 12.5, border: env === e ? 'none' : `1px solid ${BORDER}`, background: env === e ? (e === 'sandbox' ? '#FFFBEB' : '#ECFDF5') : 'white', color: env === e ? (e === 'sandbox' ? '#D97706' : '#059669') : MUTED, opacity: loading ? 0.7 : 1 }}
               >
                 {e === 'sandbox' ? 'Sandbox' : 'ProduÃ§Ã£o'}
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -7005,11 +6983,11 @@ export function ProviderScreen() {
             <div style={{ display: 'grid', gap: 12 }}>
               <div>
                 <label style={{ fontFamily: F, fontWeight: 700, fontSize: 12, color: NAVY, display: 'block', marginBottom: 6 }}>Endpoint base</label>
-                <input value={baseUrlDraft} onChange={(e) => setBaseUrlDraft(e.target.value)} placeholder="https://api.exemplo.com" style={{ width: '100%', background: FAINT, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '10px 14px', fontFamily: MONO, fontSize: 12.5, color: TEXT, outline: 'none', boxSizing: 'border-box' }} />
+                <input value={baseUrlDraft} readOnly style={{ width: '100%', background: FAINT, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '10px 14px', fontFamily: MONO, fontSize: 12.5, color: TEXT, outline: 'none', boxSizing: 'border-box', opacity: 0.8 }} />
               </div>
               <div>
                 <label style={{ fontFamily: F, fontWeight: 700, fontSize: 12, color: NAVY, display: 'block', marginBottom: 6 }}>Webhook URL</label>
-                <input value={webhookUrlDraft} onChange={(e) => setWebhookUrlDraft(e.target.value)} placeholder="https://app.connektpay.com/api/webhooks" style={{ width: '100%', background: FAINT, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '10px 14px', fontFamily: MONO, fontSize: 12.5, color: TEXT, outline: 'none', boxSizing: 'border-box' }} />
+                <input value={webhookUrlDraft} readOnly style={{ width: '100%', background: FAINT, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '10px 14px', fontFamily: MONO, fontSize: 12.5, color: TEXT, outline: 'none', boxSizing: 'border-box', opacity: 0.8 }} />
               </div>
               <div>
                 <label style={{ fontFamily: F, fontWeight: 700, fontSize: 12, color: NAVY, display: 'block', marginBottom: 6 }}>Timeout (segundos)</label>
@@ -7017,7 +6995,7 @@ export function ProviderScreen() {
               </div>
             </div>
             <Notice tone="info">
-              Credenciais, secrets e chaves continuam exclusivamente no ambiente server-side. Esta tela edita apenas metadados operacionais.
+              Endpoint base e webhook são somente leitura porque pertencem ao deployment. Esta tela permite ajustar apenas parâmetros operacionais não sensíveis, como timeout.
             </Notice>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <GhostBtn onClick={() => router.push('/configuracoes/integracoes')}>Abrir integrações avançadas</GhostBtn>
@@ -7036,8 +7014,6 @@ export function ProviderScreen() {
                       method: 'PUT',
                       headers: { 'content-type': 'application/json' },
                       body: JSON.stringify({
-                        base_url: baseUrlDraft.trim() || null,
-                        webhook_url: webhookUrlDraft.trim() || null,
                         timeout_seconds: timeoutSeconds,
                       }),
                     })
@@ -7047,8 +7023,6 @@ export function ProviderScreen() {
                       return
                     }
                     setProvider(json?.providerSettings ?? null)
-                    setBaseUrlDraft(String(json?.providerSettings?.base_url ?? ''))
-                    setWebhookUrlDraft(String(json?.providerSettings?.webhook_url ?? ''))
                     setTimeoutDraft(String(json?.providerSettings?.timeout_seconds ?? timeoutSeconds))
                     setEditOpen(false)
                   } catch (err) {
@@ -7748,7 +7722,6 @@ export function IntegracoesScreen() {
   const [showToken, setShowToken] = useState(false)
   const [env, setEnv] = useState<'sandbox' | 'production'>('production')
   const [loading, setLoading] = useState(true)
-  const [savingEnv, setSavingEnv] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [provider, setProvider] = useState<any | null>(null)
   const [apiKeys, setApiKeys] = useState<any[]>([])
@@ -7788,7 +7761,7 @@ export function IntegracoesScreen() {
       const res = await fetch('/api/integrations/api-keys', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: env === 'production' ? 'Chave de produÃ§Ã£o' : 'Chave de sandbox', env }),
+        body: JSON.stringify({ name: env === 'production' ? 'Chave de produÃ§Ã£o' : 'Chave de sandbox' }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok) {
@@ -7813,7 +7786,7 @@ export function IntegracoesScreen() {
       const res = await fetch('/api/integrations/tokens', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Token de integraÃ§Ã£o', env }),
+        body: JSON.stringify({ name: env === 'production' ? 'Token de produção' : 'Token de sandbox' }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok) {
@@ -7873,60 +7846,41 @@ export function IntegracoesScreen() {
         <div style={{ padding: '22px 28px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <p style={{ fontFamily: F, fontWeight: 700, fontSize: 13.5, color: TEXT, marginBottom: 4 }}>Ambiente ativo</p>
-            <p style={{ fontFamily: F, fontSize: 12.5, color: MUTED, lineHeight: 1.6 }}>Selecione o ambiente de integraÃ§Ã£o para chaves, tokens e endpoints.</p>
+            <p style={{ fontFamily: F, fontSize: 12.5, color: MUTED, lineHeight: 1.6 }}>Ambiente resolvido no servidor pelo deployment atual. Chaves, tokens e endpoints seguem esse runtime automaticamente.</p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {(['sandbox', 'production'] as const).map((e) => (
-              <button
+              <div
                 key={e}
-                onClick={async () => {
-                  if (savingEnv) return
-                  const prev = env
-                  setEnv(e)
-                  setSavingEnv(true)
-                  setError(null)
-                  try {
-                    const res = await fetch('/api/provider-settings', {
-                      method: 'PUT',
-                      headers: { 'content-type': 'application/json' },
-                      body: JSON.stringify({ environment: e }),
-                    })
-                    const json = await res.json().catch(() => null)
-                    if (!res.ok) {
-                      logError('IntegracoesScreen: save env failed', { status: res.status, error: json?.error })
-                      setEnv(prev)
-                      setError(toUserFacingError(json?.error, 'NÃ£o foi possÃ­vel atualizar o ambiente. Tente novamente.', '/api/provider-settings'))
-                    } else {
-                      setProvider(json?.providerSettings ?? provider)
-                    }
-                  } finally {
-                    setSavingEnv(false)
-                  }
-                }}
                 style={{
                   padding: '8px 14px',
                   borderRadius: 9,
                   fontFamily: F,
                   fontWeight: 800,
                   fontSize: 12.5,
-                  cursor: savingEnv ? 'default' : 'pointer',
                   border: env === e ? 'none' : `1px solid ${BORDER}`,
                   background: env === e ? (e === 'sandbox' ? '#FFFBEB' : '#ECFDF5') : 'white',
                   color: env === e ? (e === 'sandbox' ? '#D97706' : '#059669') : MUTED,
-                  opacity: savingEnv ? 0.75 : 1,
+                  opacity: 1,
                 }}
-                disabled={savingEnv}
               >
                 {e === 'sandbox' ? 'Sandbox' : 'ProduÃ§Ã£o'}
-              </button>
+              </div>
             ))}
           </div>
+        </div>
+        <div style={{ padding: '0 28px 16px' }}>
+          <Notice tone={env === 'sandbox' ? 'warning' : 'info'}>
+            {env === 'sandbox'
+              ? 'Ambiente de testes: não há movimentação financeira real e os dados desta operação devem permanecer isolados.'
+              : 'Produção: operações financeiras usam credenciais reais do deployment e exigem cautela antes de qualquer ação sensível.'}
+          </Notice>
         </div>
         <div style={{ padding: '0 28px 22px' }}>
           <div style={{ background: FAINT, borderRadius: 12, border: `1px solid ${BORDER}`, padding: '14px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
             {[
-              { label: 'Endpoint base', value: provider?.base_url ?? (env === 'production' ? 'https://api.connektpay.com.br/v2' : 'https://sandbox.api.connektpay.com.br/v2') },
-              { label: 'Webhook URL', value: provider?.webhook_url ?? (env === 'production' ? 'https://hooks.connektpay.com.br/events' : 'https://sandbox.hooks.connektpay.com.br/events') },
+              { label: 'Endpoint base', value: provider?.base_url ?? 'â€”' },
+              { label: 'Webhook URL', value: provider?.webhook_url ?? 'â€”' },
             ].map(({ label, value }) => (
               <div key={label}>
                 <p style={{ fontFamily: F, fontSize: 11, color: MUTED, marginBottom: 3 }}>{label}</p>

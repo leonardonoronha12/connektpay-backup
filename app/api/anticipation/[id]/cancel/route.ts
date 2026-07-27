@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { classifyInternalApiError } from '@/lib/api-error'
+﻿﻿import { classifyInternalApiError } from '@/lib/api-error'
 import { isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -11,8 +11,8 @@ function json(data: unknown, init?: ResponseInit) {
 
 export async function POST(request: Request, ctxRoute: { params: Promise<{ id: string }> }) {
   void request
-  if (!isSupabaseConfigured()) return json({ error: 'Funcionalidade indisponÃ­vel no momento.' }, { status: 503 })
-  if (!isSupabaseServiceConfigured()) return json({ error: 'Funcionalidade indisponÃ­vel no momento.' }, { status: 503 })
+  if (!isSupabaseConfigured()) return json({ error: 'Funcionalidade indisponivel no momento.' }, { status: 503 })
+  if (!isSupabaseServiceConfigured()) return json({ error: 'Funcionalidade indisponivel no momento.' }, { status: 503 })
   try {
     const ctx = await requireSessionOrgContext()
     assertRole(ctx.role, ['owner', 'financeiro', 'super_admin'])
@@ -26,4 +26,3 @@ export async function POST(request: Request, ctxRoute: { params: Promise<{ id: s
     return json({ error: err.message }, { status: err.status })
   }
 }
-

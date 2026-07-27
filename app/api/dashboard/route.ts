@@ -1,7 +1,7 @@
 import { classifyInternalApiError } from '@/lib/api-error'
 import { getAvailableAnticipationAmount } from '@/lib/anticipation-service'
 import { buildDailySeriesFromPaidTransactions, buildPaymentsByMethod, buildSubscriptionsByStatus, parsePeriod } from '@/lib/dashboard-core'
-import { isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialEnvironment, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { getOrgFromApiKey } from '@/lib/public-api-auth'
 import { checkPublicRateLimit } from '@/lib/public-rate-limit'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
@@ -26,6 +26,7 @@ export async function GET(request: Request) {
     if (!apiKeyCtx) assertRole(ctx!.role, ['owner', 'admin', 'operacional', 'financeiro', 'super_admin'])
     const supabase = apiKeyCtx || isSupabaseServiceConfigured() ? getSupabaseAdminClient() : await getSupabaseServerClient()
     const organizationId = apiKeyCtx ? apiKeyCtx.organizationId : (ctx!.organizationId as string)
+    const runtime = getFinancialEnvironment()
 
     const url = new URL(request.url)
     const receiverId = url.searchParams.get('receiverId')
@@ -44,6 +45,8 @@ export async function GET(request: Request) {
               .from('pay_split')
               .select('transaction_id, amount, kind, created_at')
               .eq('organization_id', organizationId)
+              .eq('provider', runtime.providerId)
+              .eq('provider_environment', runtime.environment)
               .eq('receiver_id', receiverId.trim())
               .gte('created_at', startIso)
               .lte('created_at', endIso)
@@ -59,6 +62,8 @@ export async function GET(request: Request) {
       .from('pay_transacao')
       .select('transaction_id, gross_amount, connekt_fee_amount, status, created_at')
       .eq('organization_id', organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .gte('created_at', startIso)
       .lte('created_at', endIso)
       .limit(5000)
@@ -69,6 +74,8 @@ export async function GET(request: Request) {
       .from('payouts')
       .select('id, status, created_at')
       .eq('organization_id', organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .eq('is_internal', false)
       .gte('created_at', startIso)
       .lte('created_at', endIso)
@@ -79,6 +86,8 @@ export async function GET(request: Request) {
       .from('pay_assinatura')
       .select('id, plano_id, status, created_at, canceled_at, plano:pay_plano(amount_centavos, cycle)')
       .eq('organization_id', organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .limit(5000)
     if (receiverId && receiverId.trim()) subsQ = subsQ.eq('recebedor_id', receiverId.trim())
 
@@ -86,6 +95,8 @@ export async function GET(request: Request) {
       .from('transactions')
       .select('id, method, status, amount, created_at')
       .eq('organization_id', organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .gte('created_at', startIso)
       .lte('created_at', endIso)
       .limit(5000)
@@ -98,6 +109,8 @@ export async function GET(request: Request) {
         .from('ledger_entries')
         .select('balance_after')
         .eq('organization_id', organizationId)
+        .eq('provider', runtime.providerId)
+        .eq('provider_environment', runtime.environment)
         .order('occurred_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -106,6 +119,8 @@ export async function GET(request: Request) {
         .from('pay_conciliation_items')
         .select('id, status, created_at')
         .eq('organization_id', organizationId)
+        .eq('provider', runtime.providerId)
+        .eq('provider_environment', runtime.environment)
         .eq('status', 'divergent')
         .gte('created_at', startIso)
         .lte('created_at', endIso)

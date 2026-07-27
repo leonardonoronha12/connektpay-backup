@@ -1,4 +1,4 @@
-import { getFinancialProvider, isPagarMeWebhookConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialEnvironment, getFinancialProvider, isPagarMeWebhookConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { processWebhookEventById } from '@/lib/webhook-processor'
 import {
   getPagarmeWebhookBasicAuthConfig,
@@ -69,9 +69,16 @@ function extractProviderReference(payload: any) {
   )
 }
 
+function normalizeIncomingEnvironment(value: unknown): 'sandbox' | 'production' | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'sandbox' || normalized === 'production' ? normalized : null
+}
+
 async function persistUnresolvedWebhookEvent(input: {
   supabase: any
   provider: string
+  providerEnvironment: 'sandbox' | 'production'
   providerEventId: string
   type: string
   attemptedSources: string[]
@@ -82,6 +89,7 @@ async function persistUnresolvedWebhookEvent(input: {
     .from('webhook_events_unresolved')
     .select('id, status')
     .eq('provider', input.provider)
+    .eq('provider_environment', input.providerEnvironment)
     .eq('provider_event_id', input.providerEventId)
     .maybeSingle()
   if (existing.error) throw existing.error
@@ -91,6 +99,7 @@ async function persistUnresolvedWebhookEvent(input: {
     .from('webhook_events_unresolved')
     .insert({
       provider: input.provider,
+      provider_environment: input.providerEnvironment,
       provider_event_id: input.providerEventId,
       type: input.type,
       status: 'pending',
@@ -146,6 +155,21 @@ export async function POST(request: Request) {
   const meta = extractProviderMetadata(payload)
 
   const providerId = getFinancialProvider()
+  const runtime = getFinancialEnvironment(providerId)
+  const runtimeEnvironment = runtime.environment
+  const incomingProviderEnvironment = normalizeIncomingEnvironment(meta.provider_environment)
+  if (incomingProviderEnvironment && incomingProviderEnvironment !== runtimeEnvironment) {
+    return json(
+      {
+        error: 'Webhook recebido para ambiente financeiro incompatível com este deployment.',
+        code: 'provider_environment_mismatch',
+        providerEventId: buildWebhookProviderEventId(body, raw),
+        expectedEnvironment: runtimeEnvironment,
+        receivedEnvironment: incomingProviderEnvironment,
+      },
+      { status: 409 },
+    )
+  }
   if (providerId === 'pagarme') {
     if (process.env.NODE_ENV === 'production' && !isPagarMeWebhookConfigured()) {
       return json({ error: 'Webhook basic auth not configured' }, { status: 503 })
@@ -220,7 +244,11 @@ export async function POST(request: Request) {
   }
   if (!organizationId && internalTransactionId) {
     attemptedSources.push('metadata.internal_transaction_id')
-    const { data } = await supabase.from('transactions').select('organization_id').eq('id', internalTransactionId).maybeSingle()
+    const { data } = await supabase.from('transactions').select('organization_id, provider, provider_environment').eq('id', internalTransactionId).maybeSingle()
+    if ((data as any)?.provider && String((data as any).provider) !== providerId) return json({ error: 'Webhook recebido para provedor incompatível.' }, { status: 409 })
+    if ((data as any)?.provider_environment && String((data as any).provider_environment) !== runtimeEnvironment) {
+      return json({ error: 'Webhook recebido para ambiente financeiro incompatível com a transação.' }, { status: 409 })
+    }
     organizationId = (data as any)?.organization_id ?? null
     if (organizationId) resolvedSource = 'metadata.internal_transaction_id'
   }
@@ -235,6 +263,8 @@ export async function POST(request: Request) {
     const { data } = await supabase
       .from('transactions')
       .select('organization_id')
+      .eq('provider', providerId)
+      .eq('provider_environment', runtimeEnvironment)
       .eq('provider_order_id', providerOrderId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -247,6 +277,8 @@ export async function POST(request: Request) {
     const { data } = await supabase
       .from('transactions')
       .select('organization_id')
+      .eq('provider', providerId)
+      .eq('provider_environment', runtimeEnvironment)
       .eq('provider_charge_id', providerChargeId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -256,7 +288,11 @@ export async function POST(request: Request) {
   }
   if (!organizationId && internalTransactionId) {
     attemptedSources.push('metadata.transaction_id')
-    const { data } = await supabase.from('transactions').select('organization_id').eq('id', internalTransactionId).maybeSingle()
+    const { data } = await supabase.from('transactions').select('organization_id, provider, provider_environment').eq('id', internalTransactionId).maybeSingle()
+    if ((data as any)?.provider && String((data as any).provider) !== providerId) return json({ error: 'Webhook recebido para provedor incompatível.' }, { status: 409 })
+    if ((data as any)?.provider_environment && String((data as any).provider_environment) !== runtimeEnvironment) {
+      return json({ error: 'Webhook recebido para ambiente financeiro incompatível com a transação.' }, { status: 409 })
+    }
     organizationId = (data as any)?.organization_id ?? null
     if (organizationId) resolvedSource = 'metadata.transaction_id'
   }
@@ -265,6 +301,8 @@ export async function POST(request: Request) {
     const { data } = await supabase
       .from('transactions')
       .select('organization_id')
+      .eq('provider', providerId)
+      .eq('provider_environment', runtimeEnvironment)
       .eq('provider_reference', providerPaymentId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -311,7 +349,11 @@ export async function POST(request: Request) {
   }
   if (!organizationId && metaAssinaturaId) {
     attemptedSources.push('metadata.assinatura_id')
-    const { data } = await supabase.from('pay_assinatura').select('organization_id').eq('id', metaAssinaturaId).maybeSingle()
+    const { data } = await supabase.from('pay_assinatura').select('organization_id, provider, provider_environment').eq('id', metaAssinaturaId).maybeSingle()
+    if ((data as any)?.provider && String((data as any).provider) !== providerId) return json({ error: 'Webhook recebido para provedor incompatível.' }, { status: 409 })
+    if ((data as any)?.provider_environment && String((data as any).provider_environment) !== runtimeEnvironment) {
+      return json({ error: 'Webhook recebido para ambiente financeiro incompatível com a assinatura.' }, { status: 409 })
+    }
     organizationId = (data as any)?.organization_id ?? null
     if (organizationId) resolvedSource = 'metadata.assinatura_id'
   }
@@ -326,6 +368,8 @@ export async function POST(request: Request) {
     const { data } = await supabase
       .from('pay_assinatura')
       .select('organization_id')
+      .eq('provider', providerId)
+      .eq('provider_environment', runtimeEnvironment)
       .eq('acquirer_subscription_id', providerSubscriptionId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -376,6 +420,7 @@ export async function POST(request: Request) {
       unresolvedEventId = await persistUnresolvedWebhookEvent({
         supabase,
         provider: providerId,
+        providerEnvironment: runtimeEnvironment,
         providerEventId,
         type: body.type,
         attemptedSources,
@@ -422,6 +467,8 @@ export async function POST(request: Request) {
     .from('webhook_events')
     .select('id, status')
     .eq('organization_id', organizationId)
+    .eq('provider', providerId)
+    .eq('provider_environment', runtimeEnvironment)
     .eq('provider_event_id', providerEventId)
     .maybeSingle()
   if (existing?.id) {
@@ -434,6 +481,7 @@ export async function POST(request: Request) {
         resolution_error: null,
       })
       .eq('provider', providerId)
+      .eq('provider_environment', runtimeEnvironment)
       .eq('provider_event_id', providerEventId)
     if (existing.status === 'pending') {
       try {
@@ -452,6 +500,8 @@ export async function POST(request: Request) {
       origin: 'provider',
       status: 'pending',
       attempts: 0,
+      provider: providerId,
+      provider_environment: runtimeEnvironment,
       provider_event_id: providerEventId,
       next_retry_at: new Date().toISOString(),
       payload: body,
@@ -470,6 +520,7 @@ export async function POST(request: Request) {
       resolution_error: null,
     })
     .eq('provider', providerId)
+    .eq('provider_environment', runtimeEnvironment)
     .eq('provider_event_id', providerEventId)
 
   try {

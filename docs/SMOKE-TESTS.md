@@ -18,6 +18,20 @@ O que valida:
 
 Arquivo: [smoke.spec.ts](file:///c:/Users/Leonardo/Desktop/ConnektPay/tests/smoke.spec.ts)
 
+## Auditoria isolada Pagar.me Orders
+
+- Data da auditoria: 2026-07-26
+- Ambiente: Preview Vercel
+- Host validado: `https://api.pagar.me/core/v5`
+- Método testado: `POST /orders`
+- Estratégia: endpoint temporário estritamente server-side, disponível apenas em Preview, protegido por sessão administrativa, segundo segredo temporário e rate limit de execução única
+- Payload: Pix mínimo fixo, sem split, sem `customer_id` pré-existente, com metadata neutra
+- Resultado: `HTTP 200`
+- Evidência sanitizada: order criada e charge criada com status inicial `pending`; `request-id` coletado e mantido fora da documentação
+- Conclusão: o endpoint `POST /orders` funciona no runtime real com `PAGARME_BASE_URL=https://api.pagar.me/core/v5` e `PAGARME_SECRET_KEY` efetiva do Preview
+- Impacto: o bloqueio anterior de `404 not_found` não é confirmado no host oficial atual; a homologação E2E pode prosseguir a partir do fluxo white-label da Connekt Pay
+- Limpeza executada: rota temporária removida do código após a coleta e segredo temporário removido do ambiente Preview
+
 ## Testes MyGateway (Playwright, unit/integration com mocks)
 
 ```bash

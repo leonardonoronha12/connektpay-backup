@@ -1,9 +1,18 @@
 import { expect, test, type Page } from '@playwright/test'
-import { closeAssistantIfVisible, getBrowserCreds, isProductionBase } from './helpers/e2e-auth'
+import { closeAssistantIfVisible, getBrowserCreds } from './helpers/e2e-auth'
 import { clickUserMenuActionItem, clickUserMenuItemAndWaitForUrl, expectUserMenuClosed, loginWithQaSession, logoutViaUserMenu, openUserMenu, openUserMenuWithKeyboard, pressUserMenuItemAndWaitForUrl } from './helpers/qa-suite'
 
 type AppRole = 'owner' | 'admin' | 'financeiro'
 const NEXT_DEV_CLIENT_REFERENCE_MANIFEST_ERROR = 'Invariant: Expected clientReferenceManifest to be defined. This is a bug in Next.js.'
+
+function usesDevRoleCookie(baseURL: string) {
+  try {
+    const url = new URL(baseURL)
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+  } catch {
+    return false
+  }
+}
 
 function isRelevantConsoleMessage(text: string) {
   return text.includes('hydration') || text.includes('Hydration failed') || text.includes('preventDefault')
@@ -51,20 +60,21 @@ async function loginForMenuRegression(
 }
 
 async function assumeRole(page: Page, baseURL: string, role: AppRole) {
+  const useDevCookie = usesDevRoleCookie(baseURL)
   await page.context().addCookies([
-    isProductionBase(baseURL)
+    useDevCookie
       ? {
+          name: 'cp_dev_role',
+          value: role,
+          url: baseURL,
+          sameSite: 'Lax' as const,
+        }
+      : {
           name: 'cp_role',
           value: role,
           url: baseURL,
           httpOnly: true,
           secure: true,
-          sameSite: 'Lax' as const,
-        }
-      : {
-          name: 'cp_dev_role',
-          value: role,
-          url: baseURL,
           sameSite: 'Lax' as const,
         },
   ])
@@ -113,8 +123,8 @@ async function assumeRole(page: Page, baseURL: string, role: AppRole) {
   await expect
     .poll(async () => {
       const cookies = await page.context().cookies()
-      if (isProductionBase(baseURL)) return cookies.find((cookie) => cookie.name === 'cp_role')?.value ?? null
-      return cookies.find((cookie) => cookie.name === 'cp_dev_role')?.value ?? null
+      if (useDevCookie) return cookies.find((cookie) => cookie.name === 'cp_dev_role')?.value ?? null
+      return cookies.find((cookie) => cookie.name === 'cp_role')?.value ?? null
     })
     .toBe(role)
   await settle(page)

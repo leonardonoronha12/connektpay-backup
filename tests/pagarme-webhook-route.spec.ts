@@ -16,11 +16,13 @@ async function getAnyOrganizationId() {
 test.describe('Pagar.me webhook route', () => {
   test('aceita Basic Auth valido, rejeita credenciais invalidas, atualiza banco e preserva idempotencia', async ({ request, baseURL }) => {
     test.skip(!baseURL, 'BASE_URL não configurado para o teste do endpoint.')
+    test.skip(/^https:\/\/.+\.vercel\.app$/i.test(String(baseURL)), 'Este teste depende de process.env mutável no mesmo processo do servidor e roda apenas localmente.')
 
     const organizationId = await getAnyOrganizationId()
     test.skip(!organizationId, 'Sem organization_id disponível no Supabase local para validar idempotência do webhook.')
 
     const admin = getAdminClient()
+    if (!admin) return
     const webhookId = `hook_test_${Date.now()}`
     const unknownWebhookId = `${webhookId}_unknown`
     const authorization = createBasicAuthorizationHeader({
@@ -213,12 +215,14 @@ test.describe('Pagar.me webhook route', () => {
 
   test('cria transação interna para order.paid correlacionado por order_code do payment link', async ({ request, baseURL }) => {
     test.skip(!baseURL, 'BASE_URL não configurado para o teste do endpoint.')
+    test.skip(/^https:\/\/.+\.vercel\.app$/i.test(String(baseURL)), 'Este teste depende de process.env mutável no mesmo processo do servidor e roda apenas localmente.')
 
     const organizationId = await getAnyOrganizationId()
     test.skip(!organizationId, 'Sem organization_id disponível no Supabase local para validar correlação por payment link.')
 
     const admin = getAdminClient()
     test.skip(!admin, 'Sem Supabase admin disponível para preparar o payment link.')
+    if (!admin) return
 
     const paymentLinkId = crypto.randomUUID()
     const slug = `hook-order-${Date.now()}`

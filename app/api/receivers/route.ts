@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { isInternalReceiversFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getFinancialEnvironment, isInternalReceiversFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -33,13 +33,16 @@ export async function GET(request: Request) {
     assertRole(ctx.role, [...RECEIVER_KYC_ALLOWED_ROLES])
     const format = new URL(request.url).searchParams.get('format')
     const supabase = isSupabaseServiceConfigured() ? getSupabaseAdminClient() : await getSupabaseServerClient()
+    const runtime = getFinancialEnvironment()
 
     const { data, error } = await supabase
       .from('receivers')
       .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider_reference, provider_status, created_at',
+        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, created_at',
       )
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -170,11 +173,14 @@ export async function POST(request: Request) {
     })
 
     const supabase = getSupabaseAdminClient()
+    const runtime = getFinancialEnvironment()
     const { data: duplicateReceiver } = await supabase
       .from('receivers')
       .select('id')
       .eq('organization_id', ctx.organizationId)
       .eq('document', normalizedDocument)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .maybeSingle()
 
     if (duplicateReceiver?.id) {
@@ -185,6 +191,9 @@ export async function POST(request: Request) {
       .from('receivers')
       .insert({
         organization_id: ctx.organizationId,
+        provider: runtime.providerId,
+        provider_environment: runtime.environment,
+        provider_receiver_id: null,
         type,
         name: body.name.trim(),
         legal_name: normalizeOptionalText(body.legalName),
@@ -203,7 +212,7 @@ export async function POST(request: Request) {
         status: 'active',
       })
       .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider_reference, provider_status, created_at',
+        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, created_at',
       )
       .single()
 

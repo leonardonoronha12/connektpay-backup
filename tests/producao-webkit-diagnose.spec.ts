@@ -106,7 +106,8 @@ test.describe('Produção — diagnose WebKit "due to access control checks"', (
           : null
 
         try {
-          const res = await origFetch(...args)
+          const [resource, options] = args as [RequestInfo | URL, RequestInit | undefined]
+          const res = await origFetch(resource, options)
           if (entry) {
             entry.result = { ok: res.ok, status: res.status, redirected: res.redirected, type: (res as any).type }
             ;(window as any).__cp.fetchCalls.push(entry)

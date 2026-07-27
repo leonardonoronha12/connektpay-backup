@@ -506,6 +506,19 @@ test.describe('PagarMeProvider', () => {
         const body = JSON.parse(String(init?.body ?? '{}'))
         expect(body.code).toBe('tx_card_123')
         expect(body.closed).toBe(true)
+        expect(body.customer).toMatchObject({
+          name: 'Tony Stark',
+          email: 'tony@stark.com',
+          type: 'individual',
+          document: '12345678909',
+          phones: {
+            mobile_phone: {
+              country_code: '55',
+              area_code: '11',
+              number: '999990000',
+            },
+          },
+        })
         expect(body.metadata).toMatchObject({
           organization_id: 'org_123',
           internal_transaction_id: 'tx_card_123',
@@ -567,6 +580,7 @@ test.describe('PagarMeProvider', () => {
         name: 'Tony Stark',
         email: 'tony@stark.com',
         document: '123.456.789-09',
+        phone: '(11) 99999-0000',
       },
       metadata: {
         organization_id: 'org_123',

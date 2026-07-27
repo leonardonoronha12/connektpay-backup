@@ -186,6 +186,8 @@ function seedReceivers() {
     {
       id: 'recv_1',
       organization_id: 'org_1',
+      provider: 'mygateway',
+      provider_environment: 'production',
       name: 'Recebedor Ativo',
       document: '12345678901',
       type: 'pf',
@@ -204,6 +206,8 @@ function seedReceivers() {
     {
       id: 'recv_blocked',
       organization_id: 'org_1',
+      provider: 'mygateway',
+      provider_environment: 'production',
       name: 'Recebedor Bloqueado',
       document: '99999999999',
       type: 'pf',
@@ -222,6 +226,8 @@ function seedReceivers() {
     {
       id: 'recv_other_org',
       organization_id: 'org_2',
+      provider: 'mygateway',
+      provider_environment: 'production',
       name: 'Outro Tenant',
       document: '88888888888',
       type: 'pf',
@@ -245,6 +251,8 @@ function seedLedger(balanceAfter = 500000) {
     {
       id: 'ledger_1',
       organization_id: 'org_1',
+      provider: 'mygateway',
+      provider_environment: 'production',
       balance_after: balanceAfter,
       occurred_at: '2026-07-13T09:00:00.000Z',
       created_at: '2026-07-13T09:00:00.000Z',
@@ -380,6 +388,8 @@ test.describe('Repasses Internos', () => {
         {
           id: 'payout_existing',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           receiver_id: 'recv_1',
           gross_amount: 90000,
           fee_amount: 1800,
@@ -421,6 +431,8 @@ test.describe('Repasses Internos', () => {
         {
           id: 'payout_1',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           receiver_id: 'recv_1',
           gross_amount: 100000,
           fee_amount: 2000,
@@ -480,6 +492,8 @@ test.describe('Repasses Internos', () => {
         {
           id: 'payout_2',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           receiver_id: 'recv_1',
           gross_amount: 60000,
           fee_amount: 1200,
@@ -524,6 +538,8 @@ test.describe('Repasses Internos', () => {
         {
           id: 'draft_1',
           organization_id: 'org_1',
+          provider: 'mygateway',
+          provider_environment: 'production',
           receiver_id: 'recv_1',
           gross_amount: 20000,
           fee_amount: 400,

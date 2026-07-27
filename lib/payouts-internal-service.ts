@@ -6,6 +6,7 @@ import {
   type PayoutEligibleReceiver,
   type PayoutInternalDraft,
 } from '@/lib/payouts-internal-core'
+import { getFinancialEnvironment } from '@/lib/env'
 import { maskDocument, redactBankAccount, sanitizeBankAccount } from '@/lib/receiver-kyc'
 
 type SupabaseLike = any
@@ -124,10 +125,13 @@ function mapPayout(row: any, receiverMap: Map<string, PayoutEligibleReceiver>) {
 }
 
 async function loadEligibleReceiverRows(supabase: SupabaseLike, organizationId: string) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await supabase
     .from('receivers')
     .select('id, name, document, type, status, kyc_status, internal_status, bank_account')
     .eq('organization_id', organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('status', 'active')
     .eq('kyc_status', 'approved')
     .neq('internal_status', 'blocked')
@@ -143,12 +147,15 @@ export async function loadPayoutEligibleReceivers(supabase: SupabaseLike, organi
 }
 
 async function loadInternalPayoutRows(supabase: SupabaseLike, organizationId: string) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await supabase
     .from('payouts')
     .select(
       'id, receiver_id, gross_amount, fee_amount, net_amount, status, scheduled_for, provider_reference, requested_at, approved_at, paid_at, failed_at, canceled_at, rejected_at, rejection_reason, internal_notes, bank_account_snapshot, is_internal, created_at, updated_at',
     )
     .eq('organization_id', organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('is_internal', true)
     .order('created_at', { ascending: false })
 
@@ -157,12 +164,15 @@ async function loadInternalPayoutRows(supabase: SupabaseLike, organizationId: st
 }
 
 async function getInternalPayoutRow(input: { supabase: SupabaseLike; organizationId: string; payoutId: string }) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await input.supabase
     .from('payouts')
     .select(
       'id, receiver_id, gross_amount, fee_amount, net_amount, status, scheduled_for, provider_reference, requested_at, approved_at, paid_at, failed_at, canceled_at, rejected_at, rejection_reason, internal_notes, bank_account_snapshot, is_internal, created_at, updated_at',
     )
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('id', input.payoutId)
     .eq('is_internal', true)
     .maybeSingle()
@@ -173,10 +183,13 @@ async function getInternalPayoutRow(input: { supabase: SupabaseLike; organizatio
 }
 
 async function loadPayoutEventRows(input: { supabase: SupabaseLike; organizationId: string; payoutId: string }) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await input.supabase
     .from('payout_events')
     .select('id, event_type, provider_event_id, payload, created_at')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('payout_id', input.payoutId)
     .order('created_at', { ascending: false })
     .limit(100)
@@ -186,10 +199,13 @@ async function loadPayoutEventRows(input: { supabase: SupabaseLike; organization
 }
 
 async function loadAvailableBalanceCents(supabase: SupabaseLike, organizationId: string) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await supabase
     .from('ledger_entries')
     .select('balance_after')
     .eq('organization_id', organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .order('occurred_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -199,10 +215,13 @@ async function loadAvailableBalanceCents(supabase: SupabaseLike, organizationId:
 }
 
 async function loadReceiverForDraft(input: { supabase: SupabaseLike; organizationId: string; receiverId: string }) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await input.supabase
     .from('receivers')
     .select('id, name, document, type, status, kyc_status, internal_status, bank_account')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('id', input.receiverId)
     .maybeSingle()
 
@@ -216,10 +235,13 @@ async function hasConflictingOpenPayout(input: {
   receiverId: string
   payoutId?: string | null
 }) {
+  const runtime = getFinancialEnvironment()
   let query = input.supabase
     .from('payouts')
     .select('id, status')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('receiver_id', input.receiverId)
     .eq('is_internal', true)
 
@@ -267,9 +289,12 @@ async function insertInternalPayoutEvent(input: {
   action: string
   status: string
 }) {
+  const runtime = getFinancialEnvironment()
   const { error } = await input.supabase.from('payout_events').insert({
     organization_id: input.organizationId,
     payout_id: input.payoutId,
+    provider: runtime.providerId,
+    provider_environment: runtime.environment,
     event_type: eventTypeFromAction(input.action, input.status),
     provider_event_id: null,
     payload: {
@@ -363,8 +388,11 @@ export async function createPayoutInternal(input: {
   if (issues.length) throw new Error(issues[0]?.message ?? 'Nao foi possivel criar a solicitacao interna.')
 
   const now = new Date().toISOString()
+  const runtime = getFinancialEnvironment()
   const insertPayload = {
     organization_id: input.organizationId,
+    provider: runtime.providerId,
+    provider_environment: runtime.environment,
     receiver_id: draft.receiverId,
     gross_amount: draft.grossAmountCents,
     fee_amount: draft.feeAmountCents,

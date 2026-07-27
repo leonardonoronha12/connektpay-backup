@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialEnvironment, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import { getSupabaseServerClient } from '@/lib/supabase-server'
@@ -28,11 +28,14 @@ export async function GET(request: Request) {
     const url = new URL(request.url)
     const format = url.searchParams.get('format')
     const supabase = isSupabaseServiceConfigured() ? getSupabaseAdminClient() : await getSupabaseServerClient()
+    const runtime = getFinancialEnvironment()
 
     const { data: entries, error } = await supabase
       .from('ledger_entries')
-      .select('id, type, direction, amount, balance_after, origin, occurred_at')
+      .select('id, type, direction, amount, balance_after, origin, provider, provider_environment, occurred_at')
       .eq('organization_id', ctx.organizationId)
+      .eq('provider', runtime.providerId)
+      .eq('provider_environment', runtime.environment)
       .order('occurred_at', { ascending: false })
       .limit(200)
 

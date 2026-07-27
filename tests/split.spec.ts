@@ -79,7 +79,18 @@ test.describe('Split (cálculo em centavos)', () => {
 
     const payload = createSplitPayloadForMyGateway({
       split,
-      receivers: [{ id: 'recv_a', providerReference: 'prov_recv_1', status: 'active', kycStatus: 'approved' }],
+      providerId: 'mygateway',
+      providerEnvironment: 'production',
+      receivers: [
+        {
+          id: 'recv_a',
+          provider: 'mygateway',
+          providerEnvironment: 'production',
+          providerReference: 'prov_recv_1',
+          status: 'active',
+          kycStatus: 'approved',
+        },
+      ],
     })
 
     expect(payload.receivers).toEqual([{ receiverId: 'prov_recv_1', amount: 10000 }])
@@ -113,4 +124,3 @@ test.describe('Split (cálculo em centavos)', () => {
     expect(a).toEqual(b)
   })
 })
-

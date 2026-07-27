@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { getFinancialEnvironment } from '@/lib/env'
 
 import {
   calculateSplit,
@@ -150,29 +151,44 @@ async function loadSplitRules(supabase: any, input: { organizationId: string; pa
   }))
 }
 
-async function loadReceivers(supabase: any, input: { organizationId: string; receiverIds: string[] }): Promise<ReceiverConfig[]> {
+async function loadReceivers(supabase: any, input: {
+  organizationId: string
+  receiverIds: string[]
+  provider: string
+  providerEnvironment: string
+}): Promise<ReceiverConfig[]> {
   if (!input.receiverIds.length) return []
 
   const { data } = await supabase
     .from('receivers')
-    .select('id, provider_reference, status, kyc_status')
+    .select('id, provider, provider_environment, provider_reference, status, kyc_status')
     .eq('organization_id', input.organizationId)
+    .eq('provider', input.provider)
+    .eq('provider_environment', input.providerEnvironment)
     .in('id', input.receiverIds)
 
   const rows = Array.isArray(data) ? data : []
   return rows.map((row: any) => ({
     id: String(row.id),
+    provider: row.provider ? String(row.provider) : null,
+    providerEnvironment: row.provider_environment ? String(row.provider_environment) : null,
     providerReference: row.provider_reference ? String(row.provider_reference) : null,
     status: String(row.status ?? 'active'),
     kycStatus: String(row.kyc_status ?? 'pending'),
   }))
 }
 
-async function pickDefaultReceiver(supabase: any, organizationId: string): Promise<ReceiverConfig | null> {
+async function pickDefaultReceiver(supabase: any, input: {
+  organizationId: string
+  provider: string
+  providerEnvironment: string
+}): Promise<ReceiverConfig | null> {
   const { data } = await supabase
     .from('receivers')
-    .select('id, provider_reference, status, kyc_status, created_at')
-    .eq('organization_id', organizationId)
+    .select('id, provider, provider_environment, provider_reference, status, kyc_status, created_at')
+    .eq('organization_id', input.organizationId)
+    .eq('provider', input.provider)
+    .eq('provider_environment', input.providerEnvironment)
     .eq('status', 'active')
     .eq('kyc_status', 'approved')
     .order('created_at', { ascending: true })
@@ -183,6 +199,8 @@ async function pickDefaultReceiver(supabase: any, organizationId: string): Promi
 
   return {
     id: String((data as any).id),
+    provider: (data as any).provider ? String((data as any).provider) : null,
+    providerEnvironment: (data as any).provider_environment ? String((data as any).provider_environment) : null,
     providerReference: (data as any).provider_reference ? String((data as any).provider_reference) : null,
     status: String((data as any).status ?? 'active'),
     kycStatus: String((data as any).kyc_status ?? 'approved'),
@@ -215,6 +233,16 @@ export function validateCheckoutPaymentLink(input: {
   if (input.expectedOrganizationId && link.organization_id !== input.expectedOrganizationId) {
     throw new InternalPaymentError('Link de pagamento não pertence à organização informada.', { status: 404, code: 'payment_link_tenant_mismatch' })
   }
+  const metadata = asMetadataObject(link.metadata)
+  const runtime = getFinancialEnvironment()
+  const linkProviderId = safeString(metadata.provider_id)
+  const linkProviderEnvironment = safeString(metadata.provider_environment)
+  if (linkProviderId && linkProviderId !== runtime.providerId) {
+    throw new InternalPaymentError('Link de pagamento configurado para outro provedor.', { status: 409, code: 'payment_link_provider_mismatch' })
+  }
+  if (linkProviderEnvironment && linkProviderEnvironment !== runtime.environment) {
+    throw new InternalPaymentError('Link de pagamento pertence a outro ambiente financeiro.', { status: 409, code: 'payment_link_environment_mismatch' })
+  }
   if (!Number.isInteger(link.amount) || link.amount <= 0) {
     throw new InternalPaymentError('Valor inválido no link de pagamento.', { status: 400, code: 'payment_link_invalid_amount' })
   }
@@ -238,6 +266,7 @@ export function buildInternalPaymentIdempotencyKey(input: {
   organizationId: string
   paymentLinkId: string | null
   provider: string
+  providerEnvironment: string
   method: 'pix' | 'card'
   amount: number
   currency: string
@@ -254,6 +283,7 @@ export function buildInternalPaymentIdempotencyKey(input: {
     input.organizationId,
     input.paymentLinkId ?? '',
     input.provider,
+    input.providerEnvironment,
     input.method,
     String(Math.round(input.amount)),
     safeString(input.currency || 'BRL').toUpperCase(),
@@ -279,13 +309,24 @@ export async function buildInternalSplitSnapshot(input: {
   organizationId: string
   paymentLinkId: string | null
   grossAmount: number
+  provider: string
+  providerEnvironment: string
 }) {
   const taxConfig = await loadPayTaxaConfig(input.supabase, input.organizationId)
   const rules = await loadSplitRules(input.supabase, { organizationId: input.organizationId, paymentLinkId: input.paymentLinkId })
   const receiverIds = Array.from(new Set(rules.map((rule) => rule.receiverId)))
-  const receivers = await loadReceivers(input.supabase, { organizationId: input.organizationId, receiverIds })
+  const receivers = await loadReceivers(input.supabase, {
+    organizationId: input.organizationId,
+    receiverIds,
+    provider: input.provider,
+    providerEnvironment: input.providerEnvironment,
+  })
   const receiverMap = new Map<string, ReceiverConfig>(receivers.map((receiver) => [receiver.id, receiver]))
-  const defaultReceiver = await pickDefaultReceiver(input.supabase, input.organizationId)
+  const defaultReceiver = await pickDefaultReceiver(input.supabase, {
+    organizationId: input.organizationId,
+    provider: input.provider,
+    providerEnvironment: input.providerEnvironment,
+  })
 
   for (const rule of rules) {
     const receiver = receiverMap.get(rule.receiverId)
@@ -389,6 +430,7 @@ function buildRpcPayload(input: {
   method: 'pix' | 'card'
   status: string
   provider: string
+  providerEnvironment: string
   idempotencyKey: string
   transactionMetadata: Record<string, unknown>
   splitSnapshot: InternalSplitSnapshot
@@ -404,6 +446,7 @@ function buildRpcPayload(input: {
     p_method: input.method,
     p_status: input.status,
     p_provider: input.provider,
+    p_provider_environment: input.providerEnvironment,
     p_idempotency_key: input.idempotencyKey,
     p_transaction_metadata: input.transactionMetadata,
     p_split_summary: input.splitSnapshot,
@@ -422,6 +465,7 @@ async function persistInternalPaymentFallback(input: {
   method: 'pix' | 'card'
   status: string
   provider: string
+  providerEnvironment: string
   idempotencyKey: string
   transactionMetadata: Record<string, unknown>
   splitSnapshot: InternalSplitSnapshot
@@ -457,6 +501,7 @@ async function persistInternalPaymentFallback(input: {
       method: input.method,
       status: input.status,
       provider: input.provider,
+      provider_environment: input.providerEnvironment,
       provider_reference: null,
       provider_order_id: null,
       provider_charge_id: null,
@@ -485,6 +530,7 @@ async function persistInternalPaymentFallback(input: {
         currency: input.currency,
         status: input.status,
         provider: input.provider,
+        provider_environment: input.providerEnvironment,
         provider_reference: null,
         provider_order_id: null,
         provider_charge_id: null,
@@ -531,6 +577,7 @@ export async function persistInternalPaymentRecord(input: {
   method: 'pix' | 'card'
   status: string
   provider: string
+  providerEnvironment: string
   idempotencyKey: string
   transactionMetadata: Record<string, unknown>
   splitSnapshot: InternalSplitSnapshot
@@ -562,6 +609,7 @@ export async function createPhase2InternalPayment(input: {
   customer: Phase2CheckoutCustomer
   customerId: string | null
   provider: string
+  providerEnvironment: string
   amount?: number | null
   currency?: string | null
   metadata?: Record<string, unknown>
@@ -595,6 +643,8 @@ export async function createPhase2InternalPayment(input: {
     organizationId: input.organizationId,
     paymentLinkId: input.paymentLink?.id ?? null,
     grossAmount: amount,
+    provider: input.provider,
+    providerEnvironment: input.providerEnvironment,
   })
 
   const requestedTransactionId = crypto.randomUUID()
@@ -602,6 +652,7 @@ export async function createPhase2InternalPayment(input: {
     organizationId: input.organizationId,
     paymentLinkId: input.paymentLink?.id ?? null,
     provider: input.provider,
+    providerEnvironment: input.providerEnvironment,
     method: input.method,
     amount,
     currency,
@@ -617,6 +668,7 @@ export async function createPhase2InternalPayment(input: {
     organization_id: input.organizationId,
     payment_link_id: input.paymentLink?.id ?? null,
     payment_link_slug: input.paymentLink?.slug ?? null,
+    provider_environment: input.providerEnvironment,
     checkout_source: input.paymentLink ? 'payment_link' : 'standalone',
     customer_reference: input.customerId,
     request_id: input.requestId ?? null,
@@ -634,6 +686,7 @@ export async function createPhase2InternalPayment(input: {
     method: input.method,
     status: 'created',
     provider: input.provider,
+    providerEnvironment: input.providerEnvironment,
     idempotencyKey,
     transactionMetadata,
     splitSnapshot: splitResult.splitSnapshot,

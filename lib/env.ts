@@ -35,6 +35,23 @@ export type ProviderCapabilities = {
   reconciliation: boolean
 }
 
+export type FinancialProviderEnvironment = 'sandbox' | 'production'
+
+export type FinancialRuntimeConfig = {
+  providerId: ProviderId
+  providerLabel: string
+  environment: FinancialProviderEnvironment
+  baseUrl: string | null
+  publicBaseUrl: string | null
+  publicAppId: string | null
+  webhookUrl: string | null
+  cardTokenizationConfigured: boolean
+  credentialsConfigured: boolean
+  capabilities: ProviderCapabilities
+  runtimeSource: 'deployment_env'
+  warnings: string[]
+}
+
 export function getFinancialProvider(): ProviderId {
   const raw = process.env.FINANCIAL_PROVIDER
   if (!raw || !raw.trim()) return 'mygateway'
@@ -43,6 +60,16 @@ export function getFinancialProvider(): ProviderId {
     throw new Error(`Unsupported FINANCIAL_PROVIDER: ${raw}`)
   }
   return normalized
+}
+
+function normalizeFinancialEnvironment(value: unknown): FinancialProviderEnvironment | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'sandbox' || normalized === 'production' ? normalized : null
+}
+
+function safeTrim(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 export function isMyGatewayConfigured() {
@@ -63,11 +90,15 @@ export function getPagarMePublicAppId() {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+function getPagarMeBaseUrl() {
+  const value = process.env.PAGARME_BASE_URL
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
 export function getPagarMePublicBaseUrl() {
   const value = process.env.NEXT_PUBLIC_PAGARME_BASE_URL
   if (typeof value === 'string' && value.trim()) return value.trim()
-  const serverValue = process.env.PAGARME_BASE_URL
-  return typeof serverValue === 'string' && serverValue.trim() ? serverValue.trim() : null
+  return getPagarMeBaseUrl()
 }
 
 function isSandboxLikeUrl(value: string | null | undefined) {
@@ -77,16 +108,42 @@ function isSandboxLikeUrl(value: string | null | undefined) {
   return normalized.includes('sandbox') || normalized.includes('sdx') || normalized.includes('staging') || normalized.includes('homolog')
 }
 
-export function getFinancialProviderEnvironment(providerId = getFinancialProvider()): 'sandbox' | 'production' {
-  if (providerId === 'pagarme') {
-    const secretKey = typeof process.env.PAGARME_SECRET_KEY === 'string' ? process.env.PAGARME_SECRET_KEY.trim() : ''
-    if (secretKey.startsWith('sk_test_')) return 'sandbox'
-    if (isSandboxLikeUrl(getPagarMePublicBaseUrl())) return 'sandbox'
-    return 'production'
+function getPagarMeConfiguredEnvironment(): FinancialProviderEnvironment {
+  const explicit = normalizeFinancialEnvironment(process.env.PAGARME_ENVIRONMENT)
+  if (explicit) return explicit
+
+  const secretKey = safeTrim(process.env.PAGARME_SECRET_KEY)
+  if (secretKey.startsWith('sk_test_')) return 'sandbox'
+  if (isSandboxLikeUrl(getPagarMePublicBaseUrl())) return 'sandbox'
+  return 'production'
+}
+
+function getDeploymentOrigin(environment: FinancialProviderEnvironment) {
+  const directUrl = safeTrim(process.env.NEXT_PUBLIC_SITE_URL || process.env.APP_URL || process.env.PUBLIC_SITE_URL)
+  if (directUrl) return directUrl.replace(/\/+$/, '')
+
+  if (environment === 'production') {
+    const productionUrl = safeTrim(process.env.VERCEL_PROJECT_PRODUCTION_URL)
+    if (productionUrl) return `https://${productionUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`
   }
 
-  const myGatewayBaseUrl = typeof process.env.MYGATEWAY_BASE_URL === 'string' ? process.env.MYGATEWAY_BASE_URL.trim() : ''
-  return isSandboxLikeUrl(myGatewayBaseUrl) ? 'sandbox' : 'production'
+  const runtimeUrl = safeTrim(process.env.VERCEL_URL)
+  if (runtimeUrl) return `https://${runtimeUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`
+  return null
+}
+
+function getFinancialWebhookUrl(providerId: ProviderId, environment: FinancialProviderEnvironment) {
+  const providerSpecific = providerId === 'pagarme' ? process.env.PAGARME_WEBHOOK_URL : process.env.MYGATEWAY_WEBHOOK_URL
+  const generic = process.env.FINANCIAL_WEBHOOK_URL
+  const configured = safeTrim(providerSpecific || generic)
+  if (configured) return configured.replace(/\/+$/, '')
+
+  const origin = getDeploymentOrigin(environment)
+  return origin ? `${origin}/api/webhooks` : null
+}
+
+export function getFinancialProviderEnvironment(providerId = getFinancialProvider()): 'sandbox' | 'production' {
+  return getFinancialEnvironment(providerId).environment
 }
 
 export function isPagarMeCardTokenizationConfigured() {
@@ -182,5 +239,64 @@ export function getProviderCapabilities(providerId = getFinancialProvider()): Pr
     webhooks: Boolean(process.env.MYGATEWAY_WEBHOOK_SECRET),
     refunds: false,
     reconciliation: isAnticipationProviderEnabled() || isPayoutProviderEnabled(),
+  }
+}
+
+export function getFinancialEnvironment(providerId = getFinancialProvider()): FinancialRuntimeConfig {
+  const providerLabel = getProviderLabel(providerId)
+  const capabilities = getProviderCapabilities(providerId)
+  const warnings: string[] = []
+
+  if (providerId === 'pagarme') {
+    const environment = getPagarMeConfiguredEnvironment()
+    const baseUrl = getPagarMeBaseUrl()
+    const publicBaseUrl = getPagarMePublicBaseUrl()
+    const publicAppId = getPagarMePublicAppId()
+    const secretKey = safeTrim(process.env.PAGARME_SECRET_KEY)
+
+    if (!normalizeFinancialEnvironment(process.env.PAGARME_ENVIRONMENT)) {
+      warnings.push('PAGARME_ENVIRONMENT não está definido; o ambiente está sendo inferido a partir da chave/base URL.')
+    }
+    if (environment === 'sandbox' && secretKey.startsWith('sk_live_')) {
+      warnings.push('Ambiente marcado como sandbox, mas a secret parece ser live.')
+    }
+    if (environment === 'production' && secretKey.startsWith('sk_test_')) {
+      warnings.push('Ambiente marcado como produção, mas a secret parece ser de teste.')
+    }
+    if (baseUrl && publicBaseUrl && isSandboxLikeUrl(baseUrl) !== isSandboxLikeUrl(publicBaseUrl)) {
+      warnings.push('Base URL pública e server-side apontam para ambientes diferentes.')
+    }
+
+    return {
+      providerId,
+      providerLabel,
+      environment,
+      baseUrl,
+      publicBaseUrl,
+      publicAppId,
+      webhookUrl: getFinancialWebhookUrl(providerId, environment),
+      cardTokenizationConfigured: isPagarMeCardTokenizationConfigured(),
+      credentialsConfigured: isPagarMeConfigured(),
+      capabilities,
+      runtimeSource: 'deployment_env',
+      warnings,
+    }
+  }
+
+  const baseUrl = safeTrim(process.env.MYGATEWAY_BASE_URL) || null
+  const environment: FinancialProviderEnvironment = isSandboxLikeUrl(baseUrl) ? 'sandbox' : 'production'
+  return {
+    providerId,
+    providerLabel,
+    environment,
+    baseUrl,
+    publicBaseUrl: null,
+    publicAppId: null,
+    webhookUrl: getFinancialWebhookUrl(providerId, environment),
+    cardTokenizationConfigured: false,
+    credentialsConfigured: isMyGatewayConfigured(),
+    capabilities,
+    runtimeSource: 'deployment_env',
+    warnings,
   }
 }

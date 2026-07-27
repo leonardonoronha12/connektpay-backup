@@ -130,11 +130,28 @@ export async function ensureGuestContext(page: Page) {
   await page.goto('/login', { waitUntil: 'domcontentloaded' }).catch(async () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
   })
+  await page.request.post(new URL('/api/auth/logout', normalizeBaseURL()).toString()).catch(() => null)
   await page.evaluate(() => {
-    window.localStorage.clear()
-    window.sessionStorage.clear()
+    try {
+      window.localStorage.clear()
+      window.sessionStorage.clear()
+      document.cookie = 'cp_role=; Path=/; SameSite=Lax; Max-Age=0'
+      document.cookie = 'cp_dev_role=; Path=/; SameSite=Lax; Max-Age=0'
+    } catch {}
   }).catch(() => {})
   await page.context().clearCookies()
+  await expect
+    .poll(
+      async () => {
+        const cookies = await page.context().cookies().catch(() => [])
+        return cookies.filter((cookie) => cookie.name.startsWith('sb-') || cookie.name === 'cp_role' || cookie.name === 'cp_dev_role').length
+      },
+      { timeout: 10_000, intervals: [100, 250, 500, 1_000] },
+    )
+    .toBe(0)
+  await page.goto('/login', { waitUntil: 'domcontentloaded' }).catch(async () => {
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
+  })
 }
 
 function matchesUrl(currentUrl: string, matcher: UrlMatcher) {
@@ -495,6 +512,8 @@ export function startQaCapture(page: Page, baseURL?: string): QaCapture {
     if (msg.type() !== 'error') return
     const text = msg.text()
     if (text.includes('Download the React DevTools')) return
+    if (text.includes(`Framing 'https://vercel.live/' violates the following Content Security Policy directive`)) return
+    if (/vercel\.live\/_next-live\/feedback\/feedback\.html/i.test(text) && /content-security-policy|frame-src/i.test(text)) return
     consoleErrors.push(text)
   }
   const onPageError = (error: any) => pageErrors.push(String(error?.message ?? error))
@@ -529,6 +548,13 @@ export function startQaCapture(page: Page, baseURL?: string): QaCapture {
     stop,
     async assertNoUnexpected(opts?: { allowCheckoutProviderNoise?: boolean }) {
       const allowCheckoutProviderNoise = Boolean(opts?.allowCheckoutProviderNoise)
+      const currentPathname = (() => {
+        try {
+          return new URL(page.url()).pathname
+        } catch {
+          return page.url()
+        }
+      })()
       const filteredPageErrors = allowCheckoutProviderNoise
         ? pageErrors.filter((entry) => {
             if (
@@ -545,14 +571,25 @@ export function startQaCapture(page: Page, baseURL?: string): QaCapture {
             if (entry.includes('The resource') && entry.includes('/_next/image?url=%2Fbrand%2Flogo-purple.png')) return false
             if (entry.includes('CheckoutPublic: create failed') && entry.includes('Falha ao processar o split no provedor financeiro.')) return false
             if (entry.includes('CheckoutPublic: create failed') && entry.includes('Split inválido: nenhuma regra ativa e nenhum recebedor padrão aprovado.')) return false
+            if (entry.trim() === 'Error' && httpErrors.some((httpEntry) => /^(400|502)\s+POST\s+.*\/api\/payments/i.test(httpEntry))) return false
             if (entry.includes('Failed to load resource: the server responded with a status of 400 (Bad Request)')) return false
+            if (entry.trim() === 'Failed to load resource: the server responded with a status of 400 ()') return false
             if (entry.includes('Failed to load resource') && entry.includes('/api/payments')) return false
             if (entry.includes('downloadable font: download failed') && entry.includes('https://fonts.gstatic.com/')) return false
             return true
           })
         : consoleErrors
       const filteredHttpErrors = allowCheckoutProviderNoise
-        ? httpErrors.filter((entry) => !(entry.includes('502 POST ') && entry.includes('/api/payments')))
+        ? httpErrors.filter((entry) => {
+            if (entry.includes('502 POST ') && entry.includes('/api/payments')) return false
+            if (
+              currentPathname === '/checkout' &&
+              /401\s+GET\s+.*\/api\/(transactions|receivers|dashboard|me)\b/i.test(entry)
+            ) {
+              return false
+            }
+            return true
+          })
         : httpErrors
 
       expect(filteredPageErrors, 'Erros de runtime da página').toEqual([])

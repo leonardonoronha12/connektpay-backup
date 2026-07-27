@@ -264,7 +264,7 @@ function buildPagarMeCardPayload(input: CreatePaymentRequest) {
         code: common.code,
       },
     ],
-    ...(input.customerId ? { customer_id: input.customerId } : { customer: buildPagarMeCustomer(input) }),
+    ...(input.customerId ? { customer_id: input.customerId } : { customer: buildPagarMeCustomer(input, { requirePhone: true }) }),
     metadata: common.metadata,
     payments: [
       {

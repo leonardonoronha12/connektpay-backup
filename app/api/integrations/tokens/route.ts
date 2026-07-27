@@ -1,4 +1,4 @@
-﻿import { isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialProviderEnvironment, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -61,9 +61,9 @@ export async function POST(request: Request) {
   try {
     const ctx = await requireSessionOrgContext()
     assertRole(ctx.role, ['owner', 'super_admin'])
-    const body = (await request.json().catch(() => null)) as null | { name?: string; env?: 'production' | 'sandbox' }
-    const name = body?.name?.trim() || 'Token'
-    const env = body?.env === 'sandbox' ? 'sandbox' : 'production'
+    const body = (await request.json().catch(() => null)) as null | { name?: string }
+    const env = getFinancialProviderEnvironment()
+    const name = body?.name?.trim() || (env === 'sandbox' ? 'Token de sandbox' : 'Token de produção')
 
     const token = randomToken(env === 'sandbox' ? 'tkn_test_' : 'tkn_live_')
     const entry: TokenEntry = {

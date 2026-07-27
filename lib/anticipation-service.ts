@@ -8,6 +8,7 @@ import {
   type AnticipationInternalDraft,
   type AnticipationStatus,
 } from '@/lib/anticipation-core'
+import { getFinancialEnvironment } from '@/lib/env'
 import { maskDocument, redactBankAccount, sanitizeBankAccount } from '@/lib/receiver-kyc'
 
 type SupabaseLike = any
@@ -181,9 +182,12 @@ async function insertInternalAnticipationEvent(input: {
   status: string
   payload?: Record<string, unknown>
 }) {
+  const runtime = getFinancialEnvironment()
   const { error } = await input.supabase.from('pay_antecipacao_events').insert({
     organization_id: input.organizationId,
     antecipacao_id: input.anticipationId,
+    provider: runtime.providerId,
+    provider_environment: runtime.environment,
     event_type: eventTypeFromAction(input.action, input.status),
     provider_event_id: null,
     payload: {
@@ -197,10 +201,13 @@ async function insertInternalAnticipationEvent(input: {
 }
 
 async function loadEligibleReceiverRows(supabase: SupabaseLike, organizationId: string) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await supabase
     .from('receivers')
     .select('id, name, document, type, status, kyc_status, internal_status, bank_account')
     .eq('organization_id', organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('status', 'active')
     .eq('kyc_status', 'approved')
     .neq('internal_status', 'blocked')
@@ -211,12 +218,15 @@ async function loadEligibleReceiverRows(supabase: SupabaseLike, organizationId: 
 }
 
 async function loadInternalAnticipationRows(supabase: SupabaseLike, organizationId: string) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await supabase
     .from('pay_antecipacao')
     .select(
       'id, recebedor_id, requested_amount_centavos, available_amount_centavos, eligible_amount_centavos, estimated_fee_bps, estimated_fee_centavos, net_amount_centavos, fee_centavos, fee_bps, expected_settlement_days, expected_settlement_at, status, provider_reference, provider_status, requested_at, approved_at, paid_at, rejected_at, canceled_at, rejection_reason, internal_notes, is_internal, created_at, updated_at',
     )
     .eq('organization_id', organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('is_internal', true)
     .order('created_at', { ascending: false })
     .limit(200)
@@ -229,12 +239,15 @@ async function loadInternalAnticipationRows(supabase: SupabaseLike, organization
 }
 
 async function getInternalAnticipationRow(input: { supabase: SupabaseLike; organizationId: string; id: string }) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await input.supabase
     .from('pay_antecipacao')
     .select(
       'id, recebedor_id, requested_amount_centavos, available_amount_centavos, eligible_amount_centavos, estimated_fee_bps, estimated_fee_centavos, net_amount_centavos, fee_centavos, fee_bps, expected_settlement_days, expected_settlement_at, status, provider_reference, provider_status, requested_at, approved_at, paid_at, rejected_at, canceled_at, rejection_reason, internal_notes, provider_payload, is_internal, created_at, updated_at',
     )
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('id', input.id)
     .eq('is_internal', true)
     .maybeSingle()
@@ -245,10 +258,13 @@ async function getInternalAnticipationRow(input: { supabase: SupabaseLike; organ
 }
 
 async function loadAnticipationEvents(input: { supabase: SupabaseLike; organizationId: string; id: string }) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await input.supabase
     .from('pay_antecipacao_events')
     .select('id, event_type, provider_event_id, payload, created_at')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('antecipacao_id', input.id)
     .order('created_at', { ascending: false })
     .limit(100)
@@ -258,10 +274,13 @@ async function loadAnticipationEvents(input: { supabase: SupabaseLike; organizat
 }
 
 async function loadReceiverForDraft(input: { supabase: SupabaseLike; organizationId: string; receiverId: string }) {
+  const runtime = getFinancialEnvironment()
   const { data, error } = await input.supabase
     .from('receivers')
     .select('id, name, document, type, status, kyc_status, internal_status, bank_account')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('id', input.receiverId)
     .maybeSingle()
 
@@ -275,10 +294,13 @@ async function hasConflictingOpenAnticipation(input: {
   receiverId: string
   anticipationId?: string | null
 }) {
+  const runtime = getFinancialEnvironment()
   let query = input.supabase
     .from('pay_antecipacao')
     .select('id, status')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .eq('recebedor_id', input.receiverId)
     .eq('is_internal', true)
 
@@ -381,10 +403,13 @@ function ensureMutableStatus(status: string) {
 }
 
 export async function getAvailableAnticipationAmount(input: { supabase: SupabaseLike; organizationId: string }) {
+  const runtime = getFinancialEnvironment()
   const { data: last, error: ledgerError } = await input.supabase
     .from('ledger_entries')
     .select('balance_after')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .order('occurred_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -396,6 +421,8 @@ export async function getAvailableAnticipationAmount(input: { supabase: Supabase
     .from('pay_antecipacao')
     .select('requested_amount_centavos, status')
     .eq('organization_id', input.organizationId)
+    .eq('provider', runtime.providerId)
+    .eq('provider_environment', runtime.environment)
     .in('status', [...RESERVED_ANTICIPATION_STATUSES])
 
   if (reservedError && !isMissingDbObjectError(reservedError)) fail('Nao foi possivel calcular o saldo elegivel.', 500)
@@ -563,8 +590,11 @@ export async function requestAnticipation(input: {
     receiver_internal_status: receiverRow?.internal_status ?? null,
   }
   const now = new Date().toISOString()
+  const runtime = getFinancialEnvironment()
   const insertPayload = {
     organization_id: input.organizationId,
+    provider: runtime.providerId,
+    provider_environment: runtime.environment,
     recebedor_id: receiverId,
     requested_amount_centavos: simulation.requestedAmountCents,
     available_amount_centavos: simulation.eligibleAmountCents,

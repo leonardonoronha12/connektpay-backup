@@ -2,7 +2,7 @@ import { getAcquirerProvider } from '@/lib/acquirer'
 import { sanitizeHostedCheckoutUrl } from '@/lib/acquirer/hosted-checkout'
 import { mapProviderErrorToUserMessage, ProviderError } from '@/lib/acquirer/provider-error'
 import { insertAuditLog } from '@/lib/audit-log'
-import { getFinancialProvider, getProviderCapabilities, isProviderConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialEnvironment, getFinancialProvider, getProviderCapabilities, isProviderConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { calculateSplitForProvider, mapSplitConfigErrorToUserMessage } from '@/lib/split-service'
 import { checkPublicRateLimit } from '@/lib/public-rate-limit'
 import { getOrgFromApiKey } from '@/lib/public-api-auth'
@@ -41,6 +41,21 @@ function buildPaymentLinkProviderSyncState() {
   return { providerId, enabled: true as const }
 }
 
+function withRuntimePaymentLinkMetadata(metadata: unknown) {
+  const record = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? { ...(metadata as Record<string, unknown>) } : {}
+  const runtime = getFinancialEnvironment()
+  if (typeof record.provider_id !== 'string' || !record.provider_id.trim()) {
+    record.provider_id = runtime.providerId
+  }
+  if (typeof record.provider_environment !== 'string' || !record.provider_environment.trim()) {
+    record.provider_environment = runtime.environment
+  }
+  if (typeof record.checkout_mode !== 'string' || !record.checkout_mode.trim()) {
+    record.checkout_mode = 'internal'
+  }
+  return record
+}
+
 export async function GET(request: Request) {
   if (!isSupabaseServiceConfigured()) return json({ error: 'Funcionalidade indisponÃ­vel no momento.' }, { status: 503 })
 
@@ -62,11 +77,14 @@ export async function GET(request: Request) {
       .maybeSingle()
     if (error) return json({ error: 'NÃ£o foi possÃ­vel carregar o link agora.' }, { status: 500 })
     if (!data) return json({ error: 'Link nÃ£o encontrado.' }, { status: 404 })
+    const metadata = withRuntimePaymentLinkMetadata(data?.metadata)
+    const providerId = typeof metadata.provider_id === 'string' ? metadata.provider_id : null
     return json({
       paymentLink: {
         ...data,
+        metadata,
         provider_url: sanitizeHostedCheckoutUrl({
-          providerId: typeof data?.metadata?.provider_id === 'string' ? data.metadata.provider_id : null,
+          providerId,
           url: data?.provider_url,
         }),
       },
@@ -83,8 +101,11 @@ export async function GET(request: Request) {
   return json({
     paymentLinks: (data ?? []).map((item: any) => ({
       ...item,
+      metadata: withRuntimePaymentLinkMetadata(item?.metadata),
       provider_url: sanitizeHostedCheckoutUrl({
-        providerId: typeof item?.metadata?.provider_id === 'string' ? item.metadata.provider_id : null,
+        providerId: typeof withRuntimePaymentLinkMetadata(item?.metadata).provider_id === 'string'
+          ? String(withRuntimePaymentLinkMetadata(item?.metadata).provider_id)
+          : null,
         url: item?.provider_url,
       }),
     })),
@@ -296,4 +317,3 @@ export async function POST(request: Request) {
 
   return json({ paymentLink: data, ...(providerSync ? { providerSync } : null) }, { status: 201 })
 }
-
