@@ -7,6 +7,7 @@ import { mapAnticipationStatus } from '@/lib/anticipation-core'
 import { handleAnticipationWebhook } from '@/lib/anticipation-service'
 import { sendTransactionalEmail } from '@/lib/email-service'
 import { appendLedgerEntryAdmin } from '@/lib/ledger-admin'
+import { normalizeReceiverProviderState, safeTrim } from '@/lib/receiver-sync-core'
 import { mapPayoutStatusFromEventType } from '@/lib/payout-core'
 import { calculateSplitForProvider, ensurePayLedgerFromSplitOnce, markPayTransacaoProviderSuccess, persistSplitSnapshot } from '@/lib/split-service'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -77,6 +78,23 @@ function extractProviderReference(payload: any) {
     (typeof payload?.id === 'string' && payload.id) ||
     null
   )
+}
+
+function extractProviderRecipientId(payload: any) {
+  return (
+    (typeof payload?.recipient_id === 'string' && payload.recipient_id) ||
+    (typeof payload?.recipient?.id === 'string' && payload.recipient.id) ||
+    (typeof payload?.id === 'string' &&
+    (String(payload?.object ?? '').toLowerCase() === 'recipient' || String(payload?.type ?? '').toLowerCase() === 'recipient')
+      ? payload.id
+      : null) ||
+    null
+  )
+}
+
+function isReceiverWebhookEvent(type: string) {
+  const normalized = String(type).toLowerCase()
+  return normalized.includes('recipient') || normalized.includes('receiver')
 }
 
 function normalizeWebhookMethod(payload: any, fallbackMethods?: Record<string, unknown> | null): 'pix' | 'card' {
@@ -213,6 +231,13 @@ export async function processWebhookEventRow(event: {
           ? payload.id
           : null
     const anticipationIdFromMeta = typeof meta.anticipation_id === 'string' ? meta.anticipation_id : null
+    const providerRecipientId = extractProviderRecipientId(payload)
+    const internalReceiverId =
+      typeof meta.internal_receiver_id === 'string'
+        ? meta.internal_receiver_id
+        : typeof meta.receiver_id === 'string'
+          ? meta.receiver_id
+          : null
 
     let tx: any = null
     if (transactionId) {
@@ -310,6 +335,72 @@ export async function processWebhookEventRow(event: {
         .limit(1)
         .maybeSingle()
       assinatura = data
+    }
+
+    let receiver: any = null
+    if (internalReceiverId) {
+      const { data } = await supabase
+        .from('receivers')
+        .select('id, organization_id, provider, provider_environment, provider_receiver_id, provider_reference')
+        .eq('organization_id', event.organization_id)
+        .eq('id', internalReceiverId)
+        .maybeSingle()
+      receiver = data
+    } else if (providerRecipientId) {
+      const { data } = await supabase
+        .from('receivers')
+        .select('id, organization_id, provider, provider_environment, provider_receiver_id, provider_reference')
+        .eq('organization_id', event.organization_id)
+        .eq('provider', eventProvider)
+        .eq('provider_environment', eventProviderEnvironment)
+        .or(`provider_receiver_id.eq.${providerRecipientId},provider_reference.eq.${providerRecipientId}`)
+        .limit(1)
+        .maybeSingle()
+      receiver = data
+    }
+
+    if (receiver?.id && isReceiverWebhookEvent(body.type)) {
+      const receiverState = normalizeReceiverProviderState(payload)
+      await supabase
+        .from('receivers')
+        .update({
+          provider: eventProvider,
+          provider_environment: eventProviderEnvironment,
+          provider_receiver_id: receiverState.providerReceiverId ?? safeTrim((receiver as any).provider_receiver_id),
+          provider_reference: receiverState.providerReference ?? safeTrim((receiver as any).provider_reference),
+          provider_status: receiverState.providerStatus,
+          external_status: receiverState.externalStatus,
+          provider_request_id: receiverState.requestId,
+          provider_synced_at: new Date().toISOString(),
+          kyc_status: receiverState.kycStatus,
+          status: receiverState.operationalStatus,
+          provider_last_error: null,
+          provider_last_error_at: null,
+        })
+        .eq('organization_id', event.organization_id)
+        .eq('id', receiver.id as string)
+
+      await supabase
+        .from('kyc_requests')
+        .update({
+          provider_status: receiverState.providerStatus,
+          provider_last_error: null,
+          provider_last_error_at: null,
+        })
+        .eq('organization_id', event.organization_id)
+        .eq('receiver_id', receiver.id as string)
+        .in('status', ['pending', 'under_review'])
+
+      await supabase.from('webhook_events').update({ status: 'processed', last_error: null, processed_at: new Date().toISOString() }).eq('id', event.id)
+      await supabase.from('webhook_attempts').insert({
+        organization_id: event.organization_id,
+        webhook_event_id: event.id,
+        attempt: nextAttempt,
+        status: 'processed',
+        error: null,
+        duration_ms: Date.now() - startedAt,
+      })
+      return { ok: true, receiverId: receiver.id as string }
     }
 
     const nextStatus = mapTransactionStatus(body.type)

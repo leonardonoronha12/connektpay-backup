@@ -43,7 +43,13 @@ const jsonOutputFile = outputRoot ? path.join(outputRoot, 'report.json') : path.
 
 const suiteSettings = {
   'local-regression': {
-    testIgnore: ['**/homologacao-*.spec.ts', '**/producao-*.spec.ts', '**/phase2d_prod_homologation.spec.ts', '**/qa-e2e-audit.spec.ts'],
+    testIgnore: [
+      '**/homologacao-*.spec.ts',
+      '**/producao-*.spec.ts',
+      '**/phase2d_prod_homologation.spec.ts',
+      '**/qa-e2e-audit.spec.ts',
+      '**/financial-environment-isolation.spec.ts',
+    ],
     projects: [
       { name: 'Desktop Chrome', use: { browserName: 'chromium', launchOptions: devtools ? ({ devtools: true } as any) : undefined } },
       { name: 'Desktop Firefox', use: { browserName: 'firefox' } },

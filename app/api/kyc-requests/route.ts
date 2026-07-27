@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { isInternalKycFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getFinancialEnvironment, isInternalKycFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -15,6 +15,7 @@ import {
   sanitizeAddress,
   sanitizeBankAccount,
 } from '@/lib/receiver-kyc'
+import { createReceiverSyncService } from '@/lib/receiver-provider-sync'
 import { NextResponse } from 'next/server'
 
 function json(data: unknown, init?: ResponseInit) {
@@ -136,10 +137,11 @@ export async function POST(request: Request) {
     if (!body?.receiverId) return json({ error: 'Recebedor nao informado.' }, { status: 400 })
 
     const supabase = isSupabaseServiceConfigured() ? getSupabaseAdminClient() : await getSupabaseServerClient()
+    const runtime = getFinancialEnvironment()
     const { data: receiver } = await supabase
       .from('receivers')
       .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider_reference',
+        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, external_status',
       )
       .eq('organization_id', ctx.organizationId)
       .eq('id', body.receiverId)
@@ -232,6 +234,17 @@ export async function POST(request: Request) {
         .eq('id', body.receiverId)
 
       if (receiverSyncError) return json({ error: 'NÃ£o foi possÃ­vel sincronizar o recebedor com o status do KYC.' }, { status: 500 })
+      try {
+        const syncService = createReceiverSyncService()
+        await syncService.submitKyc({
+          supabase,
+          organizationId: ctx.organizationId,
+          receiverId: String(body.receiverId),
+          provider: runtime.providerId,
+          providerEnvironment: runtime.environment,
+        })
+      } catch {
+      }
       return json({ kycRequest: current })
     }
     const { data, error } = await supabase
@@ -289,10 +302,20 @@ export async function POST(request: Request) {
       before: null,
       after: redactKycRequestForAudit({ ...data, receiver_id: body.receiverId }),
     })
+    try {
+      const syncService = createReceiverSyncService()
+      await syncService.submitKyc({
+        supabase,
+        organizationId: ctx.organizationId,
+        receiverId: String(body.receiverId),
+        provider: runtime.providerId,
+        providerEnvironment: runtime.environment,
+      })
+    } catch {
+    }
     return json({ kycRequest: data }, { status: 201 })
   } catch (e) {
     const err = classifyInternalApiError(e)
     return json({ error: err.message }, { status: err.status })
   }
 }
-

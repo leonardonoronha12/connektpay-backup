@@ -213,6 +213,168 @@ test.describe('Pagar.me webhook route', () => {
     }
   })
 
+  test('sincroniza receiver e KYC quando recebe evento de recipient do provider', async ({ request, baseURL }) => {
+    test.skip(!baseURL, 'BASE_URL não configurado para o teste do endpoint.')
+    test.skip(/^https:\/\/.+\.vercel\.app$/i.test(String(baseURL)), 'Este teste depende de process.env mutável no mesmo processo do servidor e roda apenas localmente.')
+
+    const organizationId = await getAnyOrganizationId()
+    test.skip(!organizationId, 'Sem organization_id disponível no Supabase local para validar sincronização de receiver.')
+
+    const admin = getAdminClient()
+    test.skip(!admin, 'Sem Supabase admin disponível para preparar receiver e KYC.')
+    if (!admin) return
+
+    const receiverId = crypto.randomUUID()
+    const kycRequestId = crypto.randomUUID()
+    const providerRecipientId = `re_test_${Date.now()}`
+    const webhookId = `hook_recipient_${Date.now()}`
+    const authorization = createBasicAuthorizationHeader({
+      username: 'webhook-user',
+      password: 'sup3r:s3cret!',
+    })
+
+    const originalProvider = process.env.FINANCIAL_PROVIDER
+    const originalUsername = process.env.PAGARME_WEBHOOK_USERNAME
+    const originalPassword = process.env.PAGARME_WEBHOOK_PASSWORD
+    process.env.FINANCIAL_PROVIDER = 'pagarme'
+    process.env.PAGARME_WEBHOOK_USERNAME = 'webhook-user'
+    process.env.PAGARME_WEBHOOK_PASSWORD = 'sup3r:s3cret!'
+
+    try {
+      const insertedReceiver = await admin
+        .from('receivers')
+        .insert({
+          id: receiverId,
+          organization_id: organizationId,
+          provider: 'pagarme',
+          provider_environment: 'sandbox',
+          provider_receiver_id: null,
+          provider_reference: null,
+          name: 'Receiver Webhook Teste',
+          document: '12345678000199',
+          bank_account: {},
+          type: 'pj',
+          legal_name: 'Receiver Webhook Teste LTDA',
+          email: 'receiver-webhook@teste.com',
+          phone: '11999990000',
+          address: {
+            street: 'Rua Teste',
+            number: '100',
+            neighborhood: 'Centro',
+            city: 'Sao Paulo',
+            state: 'SP',
+            zip: '01001000',
+          },
+          kyc_status: 'pending',
+          status: 'active',
+          provider_last_error: 'old_error',
+        })
+        .select('id')
+        .single()
+      expect(insertedReceiver.error).toBeNull()
+
+      const insertedKyc = await admin
+        .from('kyc_requests')
+        .insert({
+          id: kycRequestId,
+          organization_id: organizationId,
+          receiver_id: receiverId,
+          status: 'under_review',
+          provider_status: 'pending',
+          provider_last_error: 'old_error',
+          evidence: {},
+          checklist: {},
+        })
+        .select('id')
+        .single()
+      expect(insertedKyc.error).toBeNull()
+
+      const response = await request.post(`${baseURL}/api/webhooks`, {
+        data: {
+          id: webhookId,
+          type: 'recipient.updated',
+          data: {
+            id: providerRecipientId,
+            object: 'recipient',
+            status: 'active',
+            request_id: 'req_recipient_1',
+            metadata: {
+              organization_id: organizationId,
+              internal_receiver_id: receiverId,
+            },
+            kyc_details: {
+              status: 'approved',
+              status_reason: 'ok',
+            },
+          },
+        },
+        headers: {
+          'content-type': 'application/json',
+          authorization,
+        },
+      })
+
+      expect(response.status()).toBe(200)
+      const json = (await response.json()) as { ok?: boolean; eventId?: string }
+      expect(json.ok).toBeTruthy()
+      expect(typeof json.eventId).toBe('string')
+
+      const { data: receiver } = await admin
+        .from('receivers')
+        .select(
+          'id, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, external_status, provider_request_id, provider_synced_at, kyc_status, status, provider_last_error',
+        )
+        .eq('organization_id', organizationId)
+        .eq('id', receiverId)
+        .maybeSingle()
+
+      expect(receiver?.provider).toBe('pagarme')
+      expect(receiver?.provider_environment).toBe('sandbox')
+      expect(receiver?.provider_receiver_id).toBe(providerRecipientId)
+      expect(receiver?.provider_reference).toBe(providerRecipientId)
+      expect(receiver?.provider_status).toBe('active:approved')
+      expect(receiver?.external_status).toBe('active')
+      expect(receiver?.provider_request_id).toBe('req_recipient_1')
+      expect(receiver?.provider_synced_at).toBeTruthy()
+      expect(receiver?.kyc_status).toBe('approved')
+      expect(receiver?.status).toBe('active')
+      expect(receiver?.provider_last_error).toBeNull()
+
+      const { data: kycRequest } = await admin
+        .from('kyc_requests')
+        .select('id, provider_status, provider_last_error')
+        .eq('organization_id', organizationId)
+        .eq('id', kycRequestId)
+        .maybeSingle()
+
+      expect(kycRequest?.provider_status).toBe('active:approved')
+      expect(kycRequest?.provider_last_error).toBeNull()
+
+      const { data: eventRow } = await admin
+        .from('webhook_events')
+        .select('id, provider_event_id, status')
+        .eq('id', json.eventId as string)
+        .maybeSingle()
+      expect(eventRow?.provider_event_id).toBe(webhookId)
+      expect(eventRow?.status).toBe('processed')
+    } finally {
+      process.env.FINANCIAL_PROVIDER = originalProvider
+      process.env.PAGARME_WEBHOOK_USERNAME = originalUsername
+      process.env.PAGARME_WEBHOOK_PASSWORD = originalPassword
+
+      const { data: webhookRows } = await admin.from('webhook_events').select('id').eq('provider_event_id', webhookId).eq('organization_id', organizationId)
+      const webhookIds = Array.isArray(webhookRows)
+        ? webhookRows.map((row) => row.id).filter((value): value is string => typeof value === 'string')
+        : []
+      if (webhookIds.length > 0) {
+        await admin.from('webhook_attempts').delete().in('webhook_event_id', webhookIds)
+      }
+      await admin.from('webhook_events').delete().eq('provider_event_id', webhookId).eq('organization_id', organizationId)
+      await admin.from('kyc_requests').delete().eq('id', kycRequestId).eq('organization_id', organizationId)
+      await admin.from('receivers').delete().eq('id', receiverId).eq('organization_id', organizationId)
+    }
+  })
+
   test('cria transação interna para order.paid correlacionado por order_code do payment link', async ({ request, baseURL }) => {
     test.skip(!baseURL, 'BASE_URL não configurado para o teste do endpoint.')
     test.skip(/^https:\/\/.+\.vercel\.app$/i.test(String(baseURL)), 'Este teste depende de process.env mutável no mesmo processo do servidor e roda apenas localmente.')

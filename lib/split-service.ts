@@ -1,5 +1,7 @@
 import { appendLedgerEntryAdmin } from '@/lib/ledger-admin'
+import { getAcquirerProvider } from '@/lib/acquirer'
 import { getFinancialEnvironment } from '@/lib/env'
+import { ReceiverSyncService } from '@/lib/receiver-sync-core'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import {
   calculateSplit,
@@ -227,6 +229,19 @@ export async function calculateSplitForProvider(
   const runtime = getFinancialEnvironment()
   const taxConfig = await loadPayTaxaConfig(supabase, input.organizationId)
   const rules = await loadSplitRules(supabase, { organizationId: input.organizationId, paymentLinkId: input.paymentLinkId })
+  if (rules.length) {
+    const syncService = new ReceiverSyncService({
+      providerFactory: getAcquirerProvider,
+      webhookUrl: runtime.webhookUrl,
+    })
+    await syncService.synchronizeReceivers({
+      supabase,
+      organizationId: input.organizationId,
+      receiverIds: Array.from(new Set(rules.map((rule) => rule.receiverId))),
+      provider: runtime.providerId,
+      providerEnvironment: runtime.environment,
+    })
+  }
   const receiverIds = rules.map((r) => r.receiverId)
   const receivers = await loadReceivers(supabase, { organizationId: input.organizationId, receiverIds })
   const fallback = defaultReceiverId ? await loadReceivers(supabase, { organizationId: input.organizationId, receiverIds: [defaultReceiverId] }).then((r) => r[0] ?? null) : await pickDefaultReceiver(supabase, input.organizationId)

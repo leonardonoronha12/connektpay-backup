@@ -46,10 +46,11 @@ export interface AcquirerProvider {
     address?: Record<string, unknown> | null
     bankAccount?: Record<string, unknown> | null
     metadata?: Record<string, string>
-  }): Promise<{ id: string; status: string }>
+    idempotencyKey?: string | null
+  }): Promise<{ id: string; status: string; requestId?: string | null; raw?: unknown }>
 
-  getRecipient?(input: { providerReference: string }): Promise<{ id: string; status: string; raw?: unknown }>
-  getKycStatus?(input: { providerReference: string; receiverId?: string }): Promise<{ id: string; status: string; raw?: unknown }>
+  getRecipient?(input: { providerReference: string }): Promise<{ id: string; status: string; requestId?: string | null; raw?: unknown }>
+  getKycStatus?(input: { providerReference: string; receiverId?: string }): Promise<{ id: string; status: string; requestId?: string | null; raw?: unknown }>
 
   createPaymentLink(input: CreatePaymentLinkRequest): Promise<PaymentLinkResponse>
   listPaymentLinks(input?: { limit?: number }): Promise<PaymentLinkResponse[]>
@@ -87,5 +88,6 @@ export interface AcquirerProvider {
     bankAccount?: Record<string, unknown> | null
     documents?: Array<{ docType: string; bucket: string; path: string; mimeType?: string | null; sizeBytes?: number | null }>
     metadata?: Record<string, string>
-  }): Promise<{ id: string; status: string }>
+    idempotencyKey?: string | null
+  }): Promise<{ id: string; status: string; requestId?: string | null; raw?: unknown }>
 }

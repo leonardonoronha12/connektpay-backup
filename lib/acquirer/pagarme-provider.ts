@@ -98,6 +98,134 @@ function buildPagarMePixSplit(split: CreatePaymentRequest['split']) {
   }))
 }
 
+function normalizePagarMeRecipientPhone(phone: unknown) {
+  const digits = safeTrim(phone)?.replace(/\D+/g, '') ?? ''
+  const localDigits = digits.startsWith('55') && digits.length >= 12 ? digits.slice(2) : digits
+  if (localDigits.length < 10 || localDigits.length > 11) return []
+  return [
+    {
+      ddd: localDigits.slice(0, 2),
+      number: localDigits.slice(2),
+      type: 'mobile',
+    },
+  ]
+}
+
+function normalizePagarMeBankAccountType(value: unknown) {
+  const normalized = safeTrim(value)?.toLowerCase()
+  if (normalized === 'checking' || normalized === 'corrente' || normalized === 'conta_corrente') return 'conta_corrente'
+  if (normalized === 'savings' || normalized === 'poupanca' || normalized === 'conta_poupanca') return 'conta_poupanca'
+  return 'conta_corrente'
+}
+
+function toBirthdateDdMmYyyy(value: unknown) {
+  const trimmed = safeTrim(value)
+  if (!trimmed) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+  if (!match) return null
+  return `${match[3]}/${match[2]}/${match[1]}`
+}
+
+function buildPagarMeRecipientPayload(input: Parameters<NonNullable<AcquirerProvider['createRecipient']>>[0]) {
+  const document = safeTrim(input.document)?.replace(/\D+/g, '')
+  const address = ensureStringRecord(input.address)
+  const bankAccount = ensureStringRecord(input.bankAccount)
+  const metadata = Object.fromEntries(
+    Object.entries(input.metadata ?? {}).filter(([, value]) => Boolean(safeTrim(value))),
+  )
+  const phoneNumbers = normalizePagarMeRecipientPhone(input.phone)
+  const bankDocument = safeTrim(bankAccount.document_number ?? bankAccount.documentNumber ?? input.document)?.replace(/\D+/g, '')
+  const bankLegalName = pickFirstString(bankAccount.legal_name, bankAccount.legalName, input.legalName, input.name)
+  const registerType = input.personType === 'pj' ? 'corporation' : 'individual'
+  const personName = pickFirstString(input.name, input.legalName, input.tradeName)
+  const companyName = pickFirstString(input.legalName, input.tradeName, input.name)
+  const representativeDocument = safeTrim(input.legalResponsibleDocument)?.replace(/\D+/g, '')
+
+  const managingPartners =
+    input.personType === 'pj' && input.legalResponsibleName && representativeDocument
+      ? [
+          {
+            name: input.legalResponsibleName,
+            document_number: representativeDocument,
+            birthdate: toBirthdateDdMmYyyy(input.birthDate),
+            email: pickFirstString(input.email),
+            self_declared_legal_representative: true,
+            address: {
+              street: pickFirstString(address.street),
+              street_number: pickFirstString(address.number),
+              neighborhood: pickFirstString(address.neighborhood, address.district),
+              city: pickFirstString(address.city),
+              state: pickFirstString(address.state),
+              zipcode: pickFirstString(address.zip)?.replace(/\D+/g, ''),
+              complementary: pickFirstString(address.complement),
+            },
+            phone_numbers: phoneNumbers,
+          },
+        ]
+      : undefined
+
+  return {
+    transfer_enabled: true,
+    transfer_interval: 'weekly',
+    transfer_day: '5',
+    automatic_anticipation_enabled: false,
+    anticipatable_volume_percentage: '0',
+    ...(metadata.internal_receiver_id ? { code: metadata.internal_receiver_id } : null),
+    ...(pickFirstString(metadata.internal_receiver_id) ? { external_id: metadata.internal_receiver_id } : null),
+    register_information: {
+      type: registerType,
+      document_number: document,
+      ...(input.personType === 'pj'
+        ? {
+            company_name: companyName,
+            trading_name: pickFirstString(input.tradeName, input.name),
+          }
+        : {
+            name: personName,
+          }),
+      email: pickFirstString(input.email),
+      address: {
+        street: pickFirstString(address.street),
+        number: pickFirstString(address.number),
+        neighborhood: pickFirstString(address.neighborhood, address.district),
+        zip_code: pickFirstString(address.zip)?.replace(/\D+/g, ''),
+        city: pickFirstString(address.city),
+        state: pickFirstString(address.state),
+        country: 'BR',
+        complement: pickFirstString(address.complement),
+      },
+      phone_numbers: phoneNumbers,
+      ...(managingPartners?.length ? { managing_partners: managingPartners } : null),
+    },
+    bank_account: {
+      bank_code: pickFirstString(bankAccount.bank_code, bankAccount.bankCode),
+      agencia: pickFirstString(bankAccount.agency, bankAccount.agencia),
+      conta: pickFirstString(bankAccount.account, bankAccount.conta),
+      conta_dv: pickFirstString(bankAccount.account_digit, bankAccount.accountDigit, bankAccount.conta_dv),
+      type: normalizePagarMeBankAccountType(bankAccount.account_type ?? bankAccount.accountType),
+      document_number: bankDocument,
+      legal_name: bankLegalName,
+    },
+    metadata,
+  }
+}
+
+function normalizePagarMeRecipientResponse(response: Record<string, unknown>) {
+  const requestId = pickFirstString(response.request_id, response.requestId)
+  const kycDetails = pickFirstObject(response.kyc_details)
+  const status = pickFirstString(response.status) ?? 'registration'
+  return {
+    id: pickFirstString(response.id, response.recipient_id) ?? '',
+    status,
+    requestId,
+    raw: {
+      ...response,
+      ...(kycDetails ? { kyc_details: kycDetails } : null),
+      ...(requestId ? { request_id: requestId } : null),
+    },
+  }
+}
+
 function buildPagarMeCustomer(input: CreatePaymentRequest, opts?: { requirePhone?: boolean }) {
   const requirePhone = opts?.requirePhone === true
   const customerName = pickFirstString(input.customer?.name, input.customer?.email)
@@ -424,6 +552,7 @@ export class PagarMeProvider implements AcquirerProvider {
       })
 
       const contentType = response.headers.get('content-type') ?? ''
+      const requestId = response.headers.get('request-id') ?? response.headers.get('x-request-id') ?? null
       const isJson = contentType.toLowerCase().includes('application/json')
       const payloadText = isJson ? '' : await response.text().catch(() => '')
       const payloadJson = isJson ? await response.json().catch(() => null) : null
@@ -456,7 +585,10 @@ export class PagarMeProvider implements AcquirerProvider {
             typeof (payloadJson as Record<string, unknown> | null)?.message === 'string'
               ? String((payloadJson as Record<string, unknown>).message)
               : `Pagar.me request failed (${status})`,
-          details: payloadJson ?? payloadText,
+          details:
+            payloadJson && typeof payloadJson === 'object'
+              ? { request_id: requestId, response: payloadJson }
+              : { request_id: requestId, response: payloadText },
         })
       }
 
@@ -469,6 +601,10 @@ export class PagarMeProvider implements AcquirerProvider {
           message: 'Pagar.me returned a non-JSON response.',
           details: payloadText,
         })
+      }
+
+      if (payloadJson && typeof payloadJson === 'object' && requestId && typeof (payloadJson as Record<string, unknown>).request_id === 'undefined') {
+        return { ...(payloadJson as Record<string, unknown>), request_id: requestId } as T
       }
 
       return payloadJson as T
@@ -517,6 +653,42 @@ export class PagarMeProvider implements AcquirerProvider {
       ok: true,
       environment: this.secretKey.startsWith('sk_test_') ? 'sandbox' : 'production',
     }
+  }
+
+  async createRecipient(input: Parameters<NonNullable<AcquirerProvider['createRecipient']>>[0]): Promise<{ id: string; status: string; requestId?: string | null; raw?: unknown }> {
+    const payload = buildPagarMeRecipientPayload(input)
+    const response = await this.requestJson<Record<string, unknown>>({
+      path: '/recipients',
+      method: 'POST',
+      body: payload,
+      headers: {
+        'Idempotency-Key': pickFirstString(input.idempotencyKey, input.metadata?.internal_receiver_id, input.receiverId),
+      },
+    })
+    return normalizePagarMeRecipientResponse(response)
+  }
+
+  async getRecipient(input: { providerReference: string }): Promise<{ id: string; status: string; requestId?: string | null; raw?: unknown }> {
+    const providerReference = safeTrim(input.providerReference)
+    if (!providerReference) {
+      throw new PagarMeAdapterError({
+        provider: 'pagarme',
+        code: 'bad_request',
+        status: 400,
+        retryable: false,
+        message: 'Missing recipient id.',
+      })
+    }
+
+    const response = await this.requestJson<Record<string, unknown>>({
+      path: `/recipients/${encodeURIComponent(providerReference)}`,
+      method: 'GET',
+    })
+    return normalizePagarMeRecipientResponse(response)
+  }
+
+  async getKycStatus(input: { providerReference: string; receiverId?: string }): Promise<{ id: string; status: string; requestId?: string | null; raw?: unknown }> {
+    return this.getRecipient({ providerReference: input.providerReference })
   }
 
   async createPaymentLink(input: CreatePaymentLinkRequest): Promise<PaymentLinkResponse> {
@@ -586,6 +758,35 @@ export class PagarMeProvider implements AcquirerProvider {
 
   async tokenizeCard(_input: TokenizeCardRequest): Promise<TokenizeCardResponse> {
     this.notImplemented('tokenizeCard')
+  }
+
+  async submitKyc(input: Parameters<NonNullable<AcquirerProvider['submitKyc']>>[0]): Promise<{ id: string; status: string; requestId?: string | null; raw?: unknown }> {
+    const providerReference = safeTrim(input.metadata?.provider_receiver_id ?? input.metadata?.provider_reference ?? input.receiverId)
+    if (!providerReference) {
+      throw new PagarMeAdapterError({
+        provider: 'pagarme',
+        code: 'bad_request',
+        status: 400,
+        retryable: false,
+        message: 'Missing recipient id for KYC.',
+      })
+    }
+
+    const response = await this.requestJson<Record<string, unknown>>({
+      path: `/recipients/${encodeURIComponent(providerReference)}/kyc_link`,
+      method: 'POST',
+      body: {},
+      headers: {
+        'Idempotency-Key': pickFirstString(input.idempotencyKey, input.metadata?.internal_receiver_id, input.receiverId),
+      },
+    })
+
+    return {
+      id: providerReference,
+      status: 'pending',
+      requestId: pickFirstString((response as Record<string, unknown>).request_id),
+      raw: response,
+    }
   }
 
   async createSubscription(_input: CreateSubscriptionRequest): Promise<CreateSubscriptionResponse> {

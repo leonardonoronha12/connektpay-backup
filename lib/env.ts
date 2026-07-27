@@ -204,6 +204,7 @@ export function isAnticipationProviderEnabled() {
 
 export function getProviderCapabilities(providerId = getFinancialProvider()): ProviderCapabilities {
   if (providerId === 'pagarme') {
+    const receiverSyncEnabled = isReceiverProviderSyncEnabled() && isPagarMeConfigured()
     return {
       providerId,
       providerName: getProviderLabel(providerId),
@@ -211,10 +212,10 @@ export function getProviderCapabilities(providerId = getFinancialProvider()): Pr
       paymentLinks: isPagarMePaymentLinksEnabled(),
       payments: isPagarMeConfigured(),
       customers: false,
-      recipients: false,
-      kyc: false,
+      recipients: receiverSyncEnabled,
+      kyc: receiverSyncEnabled,
       subscriptions: isPagarMeConfigured(),
-      split: false,
+      split: isPagarMeConfigured(),
       payouts: false,
       anticipation: false,
       webhooks: isPagarMeWebhookConfigured(),

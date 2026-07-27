@@ -1,5 +1,7 @@
 import crypto from 'crypto'
+import { getAcquirerProvider } from '@/lib/acquirer'
 import { getFinancialEnvironment } from '@/lib/env'
+import { ReceiverSyncService } from '@/lib/receiver-sync-core'
 
 import {
   calculateSplit,
@@ -95,41 +97,6 @@ export type CreatePhase2InternalPaymentResult = {
   paySplitRows: Array<Record<string, unknown>>
 }
 
-// #region debug-point A:reporter
-async function reportSplitInvalidReceiverDebug(input: {
-  hypothesisId: 'A' | 'B' | 'C' | 'D' | 'E'
-  location: string
-  msg: string
-  data: Record<string, unknown>
-  traceId?: string | null
-}) {
-  try {
-    const fs = await import('node:fs')
-    let url = 'http://127.0.0.1:7777/event'
-    let sessionId = 'split-invalid-receiver'
-    try {
-      const env = fs.readFileSync('.dbg/split-invalid-receiver.env', 'utf8')
-      url = env.match(/DEBUG_SERVER_URL=(.+)/)?.[1]?.trim() || url
-      sessionId = env.match(/DEBUG_SESSION_ID=(.+)/)?.[1]?.trim() || sessionId
-    } catch {}
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        sessionId,
-        runId: 'pre-fix',
-        hypothesisId: input.hypothesisId,
-        location: input.location,
-        msg: `[DEBUG] ${input.msg}`,
-        data: input.data,
-        traceId: input.traceId ?? undefined,
-        ts: Date.now(),
-      }),
-    }).catch(() => null)
-  } catch {}
-}
-// #endregion
-
 function safeString(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -196,7 +163,7 @@ async function loadReceivers(supabase: any, input: {
 
   const { data } = await supabase
     .from('receivers')
-    .select('id, provider, provider_environment, provider_reference, status, kyc_status')
+    .select('id, provider, provider_environment, provider_receiver_id, provider_reference, status, kyc_status')
     .eq('organization_id', input.organizationId)
     .eq('provider', input.provider)
     .eq('provider_environment', input.providerEnvironment)
@@ -207,7 +174,7 @@ async function loadReceivers(supabase: any, input: {
     id: String(row.id),
     provider: row.provider ? String(row.provider) : null,
     providerEnvironment: row.provider_environment ? String(row.provider_environment) : null,
-    providerReference: row.provider_reference ? String(row.provider_reference) : null,
+    providerReference: row.provider_receiver_id ? String(row.provider_receiver_id) : row.provider_reference ? String(row.provider_reference) : null,
     status: String(row.status ?? 'active'),
     kycStatus: String(row.kyc_status ?? 'pending'),
   }))
@@ -220,7 +187,7 @@ async function pickDefaultReceiver(supabase: any, input: {
 }): Promise<ReceiverConfig | null> {
   const { data } = await supabase
     .from('receivers')
-    .select('id, provider, provider_environment, provider_reference, status, kyc_status, created_at')
+    .select('id, provider, provider_environment, provider_receiver_id, provider_reference, status, kyc_status, created_at')
     .eq('organization_id', input.organizationId)
     .eq('provider', input.provider)
     .eq('provider_environment', input.providerEnvironment)
@@ -236,7 +203,8 @@ async function pickDefaultReceiver(supabase: any, input: {
     id: String((data as any).id),
     provider: (data as any).provider ? String((data as any).provider) : null,
     providerEnvironment: (data as any).provider_environment ? String((data as any).provider_environment) : null,
-    providerReference: (data as any).provider_reference ? String((data as any).provider_reference) : null,
+    providerReference:
+      (data as any).provider_receiver_id ? String((data as any).provider_receiver_id) : (data as any).provider_reference ? String((data as any).provider_reference) : null,
     status: String((data as any).status ?? 'active'),
     kycStatus: String((data as any).kyc_status ?? 'approved'),
   }
@@ -365,24 +333,6 @@ export async function buildInternalSplitSnapshot(input: {
   const taxConfig = await loadPayTaxaConfig(input.supabase, input.organizationId)
   const rules = await loadSplitRules(input.supabase, { organizationId: input.organizationId, paymentLinkId: input.paymentLinkId })
   if (!rules.length) {
-    // #region debug-point A:no-explicit-split
-    await reportSplitInvalidReceiverDebug({
-      hypothesisId: 'A',
-      location: 'lib/payments-internal.ts:buildInternalSplitSnapshot:no-explicit-split',
-      msg: 'payment has no explicit split rules; skipping receiver validation',
-      traceId: `${input.organizationId}:${input.paymentLinkId ?? 'standalone'}:${input.providerEnvironment}`,
-      data: {
-        organizationId: input.organizationId,
-        paymentLinkId: input.paymentLinkId,
-        provider: input.provider,
-        providerEnvironment: input.providerEnvironment,
-        grossAmount: input.grossAmount,
-        splitRequested: false,
-        splitRuleCount: 0,
-        receiverOrigin: 'none',
-      },
-    })
-    // #endregion
     return {
       split: null,
       splitSnapshot: buildNoSplitSnapshot({ grossAmount: input.grossAmount, taxConfig }),
@@ -390,6 +340,17 @@ export async function buildInternalSplitSnapshot(input: {
     }
   }
   const receiverIds = Array.from(new Set(rules.map((rule) => rule.receiverId)))
+  const syncService = new ReceiverSyncService({
+    providerFactory: getAcquirerProvider,
+    webhookUrl: getFinancialEnvironment().webhookUrl,
+  })
+  await syncService.synchronizeReceivers({
+    supabase: input.supabase,
+    organizationId: input.organizationId,
+    receiverIds,
+    provider: input.provider,
+    providerEnvironment: input.providerEnvironment,
+  })
   const receivers = await loadReceivers(input.supabase, {
     organizationId: input.organizationId,
     receiverIds,
@@ -403,62 +364,9 @@ export async function buildInternalSplitSnapshot(input: {
     providerEnvironment: input.providerEnvironment,
   })
 
-  // #region debug-point A:pre-validation-snapshot
-  await reportSplitInvalidReceiverDebug({
-    hypothesisId: 'A',
-    location: 'lib/payments-internal.ts:buildInternalSplitSnapshot',
-    msg: 'split snapshot loaded before receiver validation',
-    traceId: `${input.organizationId}:${input.paymentLinkId ?? 'standalone'}:${input.providerEnvironment}`,
-    data: {
-      organizationId: input.organizationId,
-      paymentLinkId: input.paymentLinkId,
-      provider: input.provider,
-      providerEnvironment: input.providerEnvironment,
-      grossAmount: input.grossAmount,
-      splitRequested: rules.length > 0,
-      splitRuleCount: rules.length,
-      splitRuleReceiverIds: rules.map((rule) => rule.receiverId),
-      defaultReceiverId: defaultReceiver?.id ?? null,
-      defaultReceiverProvider: defaultReceiver?.provider ?? null,
-      defaultReceiverProviderEnvironment: defaultReceiver?.providerEnvironment ?? null,
-      defaultReceiverProviderReferencePresent: Boolean(defaultReceiver?.providerReference),
-      loadedReceiverCount: receivers.length,
-      loadedReceivers: receivers.map((receiver) => ({
-        id: receiver.id,
-        provider: receiver.provider,
-        providerEnvironment: receiver.providerEnvironment,
-        providerReferencePresent: Boolean(receiver.providerReference),
-        status: receiver.status,
-        kycStatus: receiver.kycStatus,
-      })),
-      receiverOrigin: rules.length > 0 ? 'split_rules_table' : defaultReceiver ? 'default_receiver' : 'none',
-    },
-  })
-  // #endregion
-
   for (const rule of rules) {
     const receiver = receiverMap.get(rule.receiverId)
     if (!receiver) {
-      // #region debug-point B:missing-rule-receiver
-      await reportSplitInvalidReceiverDebug({
-        hypothesisId: 'B',
-        location: 'lib/payments-internal.ts:buildInternalSplitSnapshot:missing-receiver',
-        msg: 'split rule receiver not found during validation',
-        traceId: `${input.organizationId}:${input.paymentLinkId ?? 'standalone'}:${input.providerEnvironment}`,
-        data: {
-          organizationId: input.organizationId,
-          paymentLinkId: input.paymentLinkId,
-          provider: input.provider,
-          providerEnvironment: input.providerEnvironment,
-          failingRuleReceiverId: rule.receiverId,
-          failingRuleId: rule.id,
-          availableReceiverIds: receivers.map((entry) => entry.id),
-          splitRuleReceiverIds: rules.map((entry) => entry.receiverId),
-          defaultReceiverId: defaultReceiver?.id ?? null,
-          splitRequested: rules.length > 0,
-        },
-      })
-      // #endregion
       throw new InternalPaymentError('Split inválido: recebedor inexistente para a organização.', { status: 400, code: 'split_invalid_receiver' })
     }
     if (safeString(receiver.status) !== 'active') {
@@ -765,28 +673,6 @@ export async function createPhase2InternalPayment(input: {
   if (currency !== 'BRL') {
     throw new InternalPaymentError('Moeda inválida para criar a transação interna.', { status: 400, code: 'payment_invalid_currency' })
   }
-
-  // #region debug-point E:payment-entry
-  await reportSplitInvalidReceiverDebug({
-    hypothesisId: 'E',
-    location: 'lib/payments-internal.ts:createPhase2InternalPayment',
-    msg: 'phase2 internal payment entering split snapshot build',
-    traceId: `${input.organizationId}:${input.paymentLink?.id ?? 'standalone'}:${input.providerEnvironment}:${input.method}`,
-    data: {
-      organizationId: input.organizationId,
-      paymentLinkId: input.paymentLink?.id ?? null,
-      paymentLinkSlug: input.paymentLink?.slug ?? null,
-      checkoutSource: input.paymentLink ? 'payment_link' : 'standalone',
-      method: input.method,
-      provider: input.provider,
-      providerEnvironment: input.providerEnvironment,
-      amount,
-      currency,
-      installments: typeof input.installments === 'number' ? input.installments : null,
-      metadataKeys: Object.keys(input.metadata ?? {}),
-    },
-  })
-  // #endregion
 
   const splitResult = await buildInternalSplitSnapshot({
     supabase: input.supabase,

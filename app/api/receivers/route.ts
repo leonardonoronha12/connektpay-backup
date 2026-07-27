@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getFinancialEnvironment, isInternalReceiversFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getFinancialEnvironment, isInternalReceiversFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -6,6 +6,7 @@ import { getSupabaseServerClient } from '@/lib/supabase-server'
 import { classifyInternalApiError, logApiError } from '@/lib/api-error'
 import { buildCsvFilename, buildCsvString } from '@/lib/csv'
 import { inferPersonTypeFromDocument, validateDocument } from '@/lib/kyc-core'
+import { createReceiverSyncService } from '@/lib/receiver-provider-sync'
 import {
   RECEIVER_INTERNAL_STATUS,
   RECEIVER_KYC_ALLOWED_ROLES,
@@ -25,6 +26,9 @@ function json(data: unknown, init?: ResponseInit) {
   return NextResponse.json(data, init)
 }
 
+const RECEIVER_SELECT =
+  'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, external_status, provider_request_id, created_at'
+
 export async function GET(request: Request) {
   if (!isSupabaseConfigured()) return json({ receivers: [] })
 
@@ -37,9 +41,7 @@ export async function GET(request: Request) {
 
     const { data, error } = await supabase
       .from('receivers')
-      .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, created_at',
-      )
+      .select(RECEIVER_SELECT)
       .eq('organization_id', ctx.organizationId)
       .eq('provider', runtime.providerId)
       .eq('provider_environment', runtime.environment)
@@ -212,7 +214,7 @@ export async function POST(request: Request) {
         status: 'active',
       })
       .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, created_at',
+        RECEIVER_SELECT,
       )
       .single()
 
@@ -237,7 +239,26 @@ export async function POST(request: Request) {
       before: null,
       after: redactReceiverForAudit(data as Record<string, unknown>),
     })
-    return json({ receiver: data }, { status: 201 })
+
+    let receiver = data
+    let syncWarning: string | null = null
+    try {
+      const syncService = createReceiverSyncService()
+      const syncResult = await syncService.synchronizeReceiver({
+        supabase,
+        organizationId: ctx.organizationId,
+        receiverId: String(data.id),
+        provider: runtime.providerId,
+        providerEnvironment: runtime.environment,
+      })
+      if (syncResult.receiver) receiver = syncResult.receiver as any
+      syncWarning = syncResult.warning?.message ?? null
+    } catch (syncError) {
+      logApiError('POST /api/receivers provider sync failed', syncError, { receiverId: String(data.id) })
+      syncWarning = 'Recebedor criado localmente, mas a sincronização automática com o provedor ficou pendente.'
+    }
+
+    return json({ receiver, syncWarning }, { status: 201 })
   } catch (e) {
     const err = classifyInternalApiError(e)
     return json({ error: err.message }, { status: err.status })

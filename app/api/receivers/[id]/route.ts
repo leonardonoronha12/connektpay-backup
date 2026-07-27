@@ -1,10 +1,11 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { classifyInternalApiError } from '@/lib/api-error'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { classifyInternalApiError } from '@/lib/api-error'
 import { insertAuditLog } from '@/lib/audit-log'
 import { getFinancialEnvironment, isInternalReceiversFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import { getSupabaseServerClient } from '@/lib/supabase-server'
 import { inferPersonTypeFromDocument, validateDocument } from '@/lib/kyc-core'
+import { createReceiverSyncService } from '@/lib/receiver-provider-sync'
 import {
   RECEIVER_INTERNAL_STATUS,
   RECEIVER_KYC_ALLOWED_ROLES,
@@ -25,6 +26,9 @@ import { NextResponse } from 'next/server'
 function json(data: unknown, init?: ResponseInit) {
   return NextResponse.json(data, init)
 }
+
+const RECEIVER_SELECT =
+  'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, external_status, provider_request_id, created_at'
 
 export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: string }> }) {
   if (!isInternalReceiversFlowEnabled()) return json({ error: 'Cadastro interno de recebedores indisponivel no momento.' }, { status: 503 })
@@ -55,9 +59,7 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
     const runtime = getFinancialEnvironment()
     const { data: before } = await supabase
       .from('receivers')
-      .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, created_at',
-      )
+      .select(RECEIVER_SELECT)
       .eq('organization_id', ctx.organizationId)
       .eq('provider', runtime.providerId)
       .eq('provider_environment', runtime.environment)
@@ -158,7 +160,7 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
       .eq('provider_environment', runtime.environment)
       .eq('id', id)
       .select(
-        'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, created_at',
+        RECEIVER_SELECT,
       )
       .single()
     if (error) return json({ error: 'NÃ£o foi possÃ­vel atualizar o recebedor agora.' }, { status: 500 })
@@ -176,7 +178,24 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
       after: redactReceiverForAudit(data as Record<string, unknown>),
     })
 
-    return json({ receiver: data })
+    let receiver = data
+    let syncWarning: string | null = null
+    try {
+      const syncService = createReceiverSyncService()
+      const syncResult = await syncService.synchronizeReceiver({
+        supabase,
+        organizationId: ctx.organizationId,
+        receiverId: id,
+        provider: runtime.providerId,
+        providerEnvironment: runtime.environment,
+      })
+      if (syncResult.receiver) receiver = syncResult.receiver as any
+      syncWarning = syncResult.warning?.message ?? null
+    } catch {
+      syncWarning = 'Recebedor atualizado localmente, mas a sincronização automática com o provedor ficou pendente.'
+    }
+
+    return json({ receiver, syncWarning })
   } catch (e) {
     const err = classifyInternalApiError(e)
     return json({ error: err.message }, { status: err.status })

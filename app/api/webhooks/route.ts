@@ -69,6 +69,18 @@ function extractProviderReference(payload: any) {
   )
 }
 
+function extractProviderRecipientId(payload: any) {
+  return (
+    (typeof payload?.recipient_id === 'string' && payload.recipient_id) ||
+    (typeof payload?.recipient?.id === 'string' && payload.recipient.id) ||
+    (typeof payload?.id === 'string' &&
+    (String(payload?.object ?? '').toLowerCase() === 'recipient' || String(payload?.type ?? '').toLowerCase() === 'recipient')
+      ? payload.id
+      : null) ||
+    null
+  )
+}
+
 function normalizeIncomingEnvironment(value: unknown): 'sandbox' | 'production' | null {
   if (typeof value !== 'string') return null
   const normalized = value.trim().toLowerCase()
@@ -132,6 +144,9 @@ type CorrelationSourceName =
   | 'provider_payout_id->payouts.provider_reference'
   | 'provider_anticipation_id->pay_antecipacao.acquirer_anticipation_id'
   | 'provider_anticipation_id->pay_antecipacao.provider_reference'
+  | 'metadata.internal_receiver_id'
+  | 'provider_recipient_id->receivers.provider_receiver_id'
+  | 'provider_recipient_id->receivers.provider_reference'
 
 export async function POST(request: Request) {
   if (!isSupabaseServiceConfigured()) {
@@ -211,6 +226,12 @@ export async function POST(request: Request) {
   const metaOrgId = typeof meta.organization_id === 'string' ? meta.organization_id : null
   const metaAssinaturaId = typeof meta.assinatura_id === 'string' ? meta.assinatura_id : null
   const metaAntecipacaoId = typeof meta.anticipation_id === 'string' ? meta.anticipation_id : typeof meta.antecipacao_id === 'string' ? meta.antecipacao_id : null
+  const metaReceiverId =
+    typeof meta.internal_receiver_id === 'string'
+      ? meta.internal_receiver_id
+      : typeof meta.receiver_id === 'string'
+        ? meta.receiver_id
+        : null
 
   const internalTransactionId =
     typeof meta.internal_transaction_id === 'string'
@@ -229,6 +250,7 @@ export async function POST(request: Request) {
   const providerSubscriptionId = typeof payload?.subscription_id === 'string' ? payload.subscription_id : typeof payload?.id === 'string' && String(body.type).startsWith('subscription.') ? payload.id : null
   const providerPayoutId = typeof payload?.payout_id === 'string' ? payload.payout_id : typeof payload?.id === 'string' && String(body.type).startsWith('payout.') ? payload.id : null
   const providerAnticipationId = typeof payload?.anticipation_id === 'string' ? payload.anticipation_id : typeof payload?.id === 'string' && String(body.type).startsWith('anticipation.') ? payload.id : null
+  const providerRecipientId = extractProviderRecipientId(payload)
   const providerOrderId = extractProviderOrderId(body, payload)
   const providerChargeId = extractProviderChargeId(body, payload)
   const providerOrderIdPresent = typeof providerOrderId === 'string'
@@ -362,6 +384,46 @@ export async function POST(request: Request) {
     const { data } = await supabase.from('pay_antecipacao').select('organization_id').eq('id', metaAntecipacaoId).maybeSingle()
     organizationId = (data as any)?.organization_id ?? null
     if (organizationId) resolvedSource = 'metadata.anticipation_id'
+  }
+  if (!organizationId && metaReceiverId) {
+    attemptedSources.push('metadata.internal_receiver_id')
+    const { data } = await supabase
+      .from('receivers')
+      .select('organization_id, provider, provider_environment')
+      .eq('id', metaReceiverId)
+      .maybeSingle()
+    if ((data as any)?.provider && String((data as any).provider) !== providerId) return json({ error: 'Webhook recebido para provedor incompatível.' }, { status: 409 })
+    if ((data as any)?.provider_environment && String((data as any).provider_environment) !== runtimeEnvironment) {
+      return json({ error: 'Webhook recebido para ambiente financeiro incompatível com o recebedor.' }, { status: 409 })
+    }
+    organizationId = (data as any)?.organization_id ?? null
+    if (organizationId) resolvedSource = 'metadata.internal_receiver_id'
+  }
+  if (!organizationId && providerRecipientId) {
+    attemptedSources.push('provider_recipient_id->receivers.provider_receiver_id')
+    const byProviderReceiverId = await supabase
+      .from('receivers')
+      .select('organization_id')
+      .eq('provider', providerId)
+      .eq('provider_environment', runtimeEnvironment)
+      .eq('provider_receiver_id', providerRecipientId)
+      .limit(1)
+      .maybeSingle()
+    organizationId = (byProviderReceiverId.data as any)?.organization_id ?? null
+    if (organizationId) resolvedSource = 'provider_recipient_id->receivers.provider_receiver_id'
+    if (!organizationId) {
+      attemptedSources.push('provider_recipient_id->receivers.provider_reference')
+      const byProviderReference = await supabase
+        .from('receivers')
+        .select('organization_id')
+        .eq('provider', providerId)
+        .eq('provider_environment', runtimeEnvironment)
+        .eq('provider_reference', providerRecipientId)
+        .limit(1)
+        .maybeSingle()
+      organizationId = (byProviderReference.data as any)?.organization_id ?? null
+      if (organizationId) resolvedSource = 'provider_recipient_id->receivers.provider_reference'
+    }
   }
   if (!organizationId && providerSubscriptionId) {
     attemptedSources.push('provider_subscription_id->pay_assinatura.acquirer_subscription_id')
