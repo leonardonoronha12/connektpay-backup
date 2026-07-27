@@ -427,6 +427,38 @@ function createSplitSeed(overrides?: {
   }
 }
 
+function createInheritedGlobalLegacySplitSeed() {
+  return {
+    pay_taxa_config: [{ organization_id: 'org_1', fee_fixed_amount: 0, fee_percentage_bps: 0, min_fee_amount: null, max_fee_amount: null, status: 'active' }],
+    receivers: [
+      {
+        id: 'recv_main',
+        organization_id: 'org_1',
+        provider: 'pagarme',
+        provider_environment: 'sandbox',
+        provider_receiver_id: 'prov_recv_main',
+        provider_reference: 'prov_recv_main',
+        status: 'active',
+        kyc_status: 'approved',
+        created_at: '2026-07-20T10:00:00.000Z',
+      },
+    ],
+    split_rules: [
+      {
+        id: 'rule_global_legacy',
+        organization_id: 'org_1',
+        receiver_id: 'recv_legacy',
+        payment_link_id: null,
+        type: 'percentage',
+        value_cents: null,
+        percentage_bps: 10000,
+        priority: 100,
+        status: 'active',
+      },
+    ],
+  }
+}
+
 test.describe('payments internal phase 2', () => {
   test('cria transacao interna completa antes do provider com snapshot e metadata segura', async () => {
     const supabase = createMockSupabase(createSplitSeed())
@@ -475,6 +507,33 @@ test.describe('payments internal phase 2', () => {
     expect(payTransacaoRow.split_snapshot.validated_total_amount).toBe(10000)
     expect(payTransacaoRow.split_snapshot.applied_receivers).toHaveLength(2)
     expect(payTransacaoRow.provider_error_code).toBe('provider_phase_pending')
+  })
+
+  test('cria transacao interna de cartao com split explicito valido', async () => {
+    const supabase = createMockSupabase(createSplitSeed())
+    const link = createValidLink()
+
+    const result = await createPhase2InternalPayment({
+      supabase,
+      organizationId: 'org_1',
+      paymentLink: link,
+      method: 'card',
+      customer: { name: 'Cliente Cartao', email: 'cartao@teste.com', document: '12345678901' },
+      customerId: 'cust_card_1',
+      provider: 'pagarme',
+      providerEnvironment: 'sandbox',
+      metadata: { attempt_id: 'attempt_card_1' },
+      explicitIdempotencyKey: 'idem-card-1',
+      requestId: 'req-card-1',
+      attemptId: 'attempt_card_1',
+      phase2ProviderErrorCode: 'provider_phase_pending',
+      phase2ProviderErrorMessage: 'Provider ainda não habilitado nesta fase.',
+    })
+
+    expect(result.splitSnapshot.rules).toHaveLength(2)
+    expect(result.splitSnapshot.applied_receivers).toHaveLength(2)
+    expect(supabase.db.pay_split).toHaveLength(3)
+    expect(supabase.db.transactions[0].method).toBe('card')
   })
 
   test('retry com mesma idempotency_key reaproveita a transacao interna sem duplicar registros', async () => {
@@ -634,6 +693,51 @@ test.describe('payments internal phase 2', () => {
         providerEnvironment: 'sandbox',
       }),
     ).rejects.toMatchObject({ code: 'split_invalid_receiver' })
+  })
+
+  test('checkout sem split explicito ignora regra global legada e nao cria pay_split', async () => {
+    const supabase = createMockSupabase(createInheritedGlobalLegacySplitSeed())
+
+    const result = await createPhase2InternalPayment({
+      supabase,
+      organizationId: 'org_1',
+      paymentLink: createValidLink({ id: 'pl_sem_split', slug: 'sem-split' }),
+      method: 'pix',
+      customer: { email: 'cliente@teste.com', document: '12345678901' },
+      customerId: 'cust_1',
+      provider: 'pagarme',
+      providerEnvironment: 'sandbox',
+      explicitIdempotencyKey: 'sem-split-herdado',
+      phase2ProviderErrorCode: 'provider_phase_pending',
+      phase2ProviderErrorMessage: 'Provider ainda não habilitado nesta fase.',
+    })
+
+    expect(result.splitSnapshot.rules).toEqual([])
+    expect(result.splitSnapshot.receivers).toEqual([])
+    expect(result.splitSnapshot.applied_receivers).toEqual([])
+    expect(supabase.db.pay_split).toEqual([])
+  })
+
+  test('cartao sem split explicito tambem ignora regra global legada', async () => {
+    const supabase = createMockSupabase(createInheritedGlobalLegacySplitSeed())
+
+    const result = await createPhase2InternalPayment({
+      supabase,
+      organizationId: 'org_1',
+      paymentLink: createValidLink({ id: 'pl_sem_split_card', slug: 'sem-split-card' }),
+      method: 'card',
+      customer: { email: 'cliente@teste.com', document: '12345678901' },
+      customerId: 'cust_1',
+      provider: 'pagarme',
+      providerEnvironment: 'sandbox',
+      explicitIdempotencyKey: 'sem-split-herdado-card',
+      phase2ProviderErrorCode: 'provider_phase_pending',
+      phase2ProviderErrorMessage: 'Provider ainda não habilitado nesta fase.',
+    })
+
+    expect(result.splitSnapshot.rules).toEqual([])
+    expect(result.splitSnapshot.applied_receivers).toEqual([])
+    expect(supabase.db.pay_split).toEqual([])
   })
 
   test('rejeita split com soma incorreta', async () => {
