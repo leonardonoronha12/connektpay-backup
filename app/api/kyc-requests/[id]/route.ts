@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { isInternalKycFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { getFinancialEnvironment, isInternalKycFlowEnabled, isSupabaseConfigured, isSupabaseServiceConfigured } from '@/lib/env'
 import { insertAuditLog } from '@/lib/audit-log'
 import { assertRole, requireSessionOrgContext } from '@/lib/session-org-context'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -14,6 +14,7 @@ import {
   sanitizeAddress,
   sanitizeBankAccount,
 } from '@/lib/receiver-kyc'
+import { createReceiverSyncService } from '@/lib/receiver-provider-sync'
 import { NextResponse } from 'next/server'
 
 function json(data: unknown, init?: ResponseInit) {
@@ -38,6 +39,7 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
     if (!body?.status) return json({ error: 'Status da analise nao informado.' }, { status: 400 })
 
     const admin = getSupabaseAdminClient()
+    const runtime = getFinancialEnvironment()
     const { data: before } = await admin
       .from('kyc_requests')
       .select('id, status, risk, decision_reason, internal_notes, reviewed_at, reviewed_by_profile_id, receiver_id, submitted_at, checklist, created_at')
@@ -54,7 +56,7 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
         admin
           .from('receivers')
           .select(
-            'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider_reference',
+            'id, type, name, legal_name, trade_name, birth_date, legal_responsible_name, legal_responsible_document, document, email, phone, address, bank_account, internal_status, kyc_status, status, provider, provider_environment, provider_receiver_id, provider_reference, provider_status, external_status',
           )
           .eq('organization_id', ctx.organizationId)
           .eq('id', before.receiver_id as string)
@@ -164,6 +166,19 @@ export async function PATCH(request: Request, ctxRoute: { params: Promise<{ id: 
       before: redactKycRequestForAudit(before as Record<string, unknown>),
       after: redactKycRequestForAudit(data as Record<string, unknown>),
     })
+    if (data?.receiver_id) {
+      try {
+        const syncService = createReceiverSyncService()
+        await syncService.submitKyc({
+          supabase: admin,
+          organizationId: ctx.organizationId,
+          receiverId: String(data.receiver_id),
+          provider: runtime.providerId,
+          providerEnvironment: runtime.environment,
+        })
+      } catch {
+      }
+    }
     return json({ kycRequest: data })
   } catch (e) {
     const err = classifyInternalApiError(e)
