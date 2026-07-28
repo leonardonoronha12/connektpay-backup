@@ -1,4 +1,4 @@
-import { getProviderLabel, isProviderId, type ProviderId } from '@/lib/acquirer/provider-id'
+import { getProviderLabel, isProviderId, normalizeProviderId, type ProviderId } from '@/lib/acquirer/provider-id'
 
 export function isSupabaseConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
@@ -52,12 +52,20 @@ export type FinancialRuntimeConfig = {
   warnings: string[]
 }
 
+const SUPPORTED_FINANCIAL_PROVIDERS = ['mygateway', 'pagarme'] as const
+
 export function getFinancialProvider(): ProviderId {
   const raw = process.env.FINANCIAL_PROVIDER
-  if (!raw || !raw.trim()) return 'mygateway'
-  const normalized = raw.trim().toLowerCase()
-  if (!isProviderId(normalized)) {
-    throw new Error(`Unsupported FINANCIAL_PROVIDER: ${raw}`)
+  if (!raw || !raw.trim()) {
+    throw new Error(
+      `FINANCIAL_PROVIDER must be explicitly set to one of: ${SUPPORTED_FINANCIAL_PROVIDERS.join(', ')}`,
+    )
+  }
+  const normalized = normalizeProviderId(raw)
+  if (!normalized || !isProviderId(normalized)) {
+    throw new Error(
+      `Unsupported FINANCIAL_PROVIDER: ${raw.trim()}. Supported values: ${SUPPORTED_FINANCIAL_PROVIDERS.join(', ')}`,
+    )
   }
   return normalized
 }
