@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test'
 import { closeAssistantIfVisible, getBrowserCreds, loginViaUi } from './helpers/e2e-auth'
+import { normalizeBaseURL } from './helpers/qa-suite'
 
 test.describe('Homologação · Rodada 2', () => {
   test('login persiste sessão e não redireciona de volta para /login', async ({ page, baseURL }) => {
-    const base = (baseURL || process.env.BASE_URL || 'http://localhost:3001').replace(/\/$/, '')
+    const base = normalizeBaseURL(baseURL)
     const creds = await getBrowserCreds(base)
     try {
       await loginViaUi(page, base, creds)
@@ -21,7 +22,7 @@ test.describe('Homologação · Rodada 2', () => {
   })
 
   test('Recebedores: modal de “Adicionar recebedor” não fecha durante digitação', async ({ page, baseURL }) => {
-    const base = (baseURL || process.env.BASE_URL || 'http://localhost:3001').replace(/\/$/, '')
+    const base = normalizeBaseURL(baseURL)
     const creds = await getBrowserCreds(base)
     try {
       await loginViaUi(page, base, creds)

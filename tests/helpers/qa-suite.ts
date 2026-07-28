@@ -22,8 +22,20 @@ type QaCapture = {
 
 type UrlMatcher = string | RegExp | ((url: URL) => boolean)
 
-function normalizeBaseURL(baseURL?: string) {
-  const raw = String(baseURL || process.env.BASE_URL || 'http://localhost:3001').replace(/\/$/, '')
+export const QA_BASE_URL_ERROR =
+  'BASE_URL deve ser definida explicitamente para executar QA/homologação. Ex.: BASE_URL=https://preview.exemplo.vercel.app ou BASE_URL=http://localhost:3001 para uso local deliberado.'
+
+export function normalizeBaseURL(baseURL?: string) {
+  const candidate =
+    typeof baseURL === 'string' && baseURL.trim()
+      ? baseURL
+      : typeof process.env.BASE_URL === 'string' && process.env.BASE_URL.trim()
+        ? process.env.BASE_URL
+        : ''
+  const raw = String(candidate).replace(/\/$/, '')
+  if (!raw) {
+    throw new Error(QA_BASE_URL_ERROR)
+  }
   try {
     const parsed = new URL(raw)
     if (parsed.hostname === '127.0.0.1') parsed.hostname = 'localhost'

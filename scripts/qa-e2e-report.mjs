@@ -12,6 +12,28 @@ function log(msg) {
   process.stdout.write(`${msg}\n`)
 }
 
+const QA_REPORT_BASE_URL_ERROR =
+  'BASE_URL deve ser definida explicitamente para auditoria/homologação RC. Ex.: BASE_URL=https://preview.exemplo.vercel.app ou BASE_URL=http://localhost:3001 para uso local deliberado.'
+
+function normalizeBaseUrlInput(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    if (url.hostname === '127.0.0.1') url.hostname = 'localhost'
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return raw.replace(/\/$/, '')
+  }
+}
+
+function resolveAuditBaseUrl(required = false) {
+  const normalized = normalizeBaseUrlInput(process.env.BASE_URL)
+  if (normalized) return normalized
+  if (required) throw new Error(QA_REPORT_BASE_URL_ERROR)
+  return null
+}
+
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return
   const raw = fs.readFileSync(filePath, 'utf8')
@@ -82,7 +104,7 @@ function statusPt(status) {
 }
 
 function prioridadePt(t) {
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3001'
+  const baseUrl = resolveAuditBaseUrl(false) || ''
   const status = String(t?.status || '')
   if (status === 'failed') return 'ALTA'
   const ce = summarizeLines(t?.consoleText, 50).total
@@ -227,13 +249,13 @@ function safeUrl(s) {
 }
 
 function inferAppBaseUrl(items) {
-  const env = safeUrl(process.env.BASE_URL)
+  const env = safeUrl(resolveAuditBaseUrl(false))
   if (env) return env.origin
 
   for (const it of items) {
     const candidates = [it?.navigationsText, it?.notesText].filter(Boolean)
     for (const t of candidates) {
-      const m = String(t).match(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i)
+      const m = String(t).match(/https?:\/\/[^\s)"]+/i)
       if (m && m[0]) {
         const u = safeUrl(m[0])
         if (u) return u.origin
@@ -241,7 +263,7 @@ function inferAppBaseUrl(items) {
     }
   }
 
-  return 'http://localhost:3001'
+  return 'BASE_URL não informada'
 }
 
 function splitRequestFailures(text, appBaseUrl) {
@@ -529,8 +551,9 @@ async function ensureDemoUserAndSeed() {
   log('Atualizando .env.local com variáveis E2E...')
   const envPath = path.resolve(process.cwd(), '.env.local')
   const existingEnv = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : ''
+  const baseUrl = resolveAuditBaseUrl(true)
   const nextEnv = upsertEnvLines(existingEnv, {
-    BASE_URL: process.env.BASE_URL || 'http://localhost:3001',
+    BASE_URL: baseUrl,
     E2E_EMAIL: email,
     E2E_PASSWORD: password,
     ...(checkoutSlug ? { E2E_CHECKOUT_SLUG: checkoutSlug } : null),
@@ -564,7 +587,7 @@ function parseCliArgs(argv) {
 async function runPlaywrightAudit(opts) {
   // Objetivo: rodar a auditoria Playwright com logs mais amigáveis em PT-BR e evitar "travamento"
   // do servidor do relatório HTML (PW_TEST_HTML_REPORT_OPEN=never).
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3001'
+  const baseUrl = resolveAuditBaseUrl(true)
   log('Configurando variáveis E2E...')
   process.env.BASE_URL = baseUrl
   if (!process.env.E2E_EMAIL || !String(process.env.E2E_EMAIL).trim()) {
@@ -1215,7 +1238,7 @@ async function main() {
   const canSetup = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
   const shouldSetup = (cli.doSetup || (cli.doRun && !cli.noSetup)) && canSetup
   if (shouldSetup) {
-    process.env.BASE_URL = process.env.BASE_URL || 'http://localhost:3001'
+    process.env.BASE_URL = resolveAuditBaseUrl(true)
     const { checkoutSlug } = await ensureDemoUserAndSeed()
     if (checkoutSlug && !process.env.E2E_CHECKOUT_SLUG) process.env.E2E_CHECKOUT_SLUG = checkoutSlug
   }

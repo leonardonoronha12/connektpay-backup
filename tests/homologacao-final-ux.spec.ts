@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { closeAssistantIfVisible, getBrowserCreds, loginViaUi } from './helpers/e2e-auth'
+import { normalizeBaseURL } from './helpers/qa-suite'
 
 async function openMobileMenuIfNeeded(page: Page) {
   const btn = page.getByTestId('mobile-menu-button')
@@ -50,7 +51,7 @@ async function navTo(page: Page, baseURL: string, label: string, path: string, e
 test.describe('Homologação final (UX/Qualidade)', () => {
   test('fluxo completo sem erros de console e sem 4xx/5xx', async ({ page, baseURL }, testInfo) => {
     test.setTimeout(420_000)
-    const base = (baseURL || process.env.BASE_URL || 'http://localhost:3001').replace(/\/$/, '')
+    const base = normalizeBaseURL(baseURL)
     const creds = await getBrowserCreds(base)
 
     const consoleErrors: { type: string; text: string }[] = []

@@ -2,7 +2,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 
+export const HOMOLOGATION_BASE_URL_ERROR =
+  'BASE_URL deve ser definida explicitamente para homologação/Release Candidate. Ex.: BASE_URL=https://preview.exemplo.vercel.app'
+export const LOCALHOST_HOMOLOGATION_ERROR =
+  'BASE_URL apontando para localhost/127.0.0.1 não é permitida nas suítes de homologação/Release Candidate.'
+
 function normalizeLoopbackBaseURL(input: string) {
+  if (!input.trim()) return ''
   try {
     const url = new URL(input)
     if (url.hostname === '127.0.0.1') {
@@ -14,12 +20,37 @@ function normalizeLoopbackBaseURL(input: string) {
   }
 }
 
-const baseURL = normalizeLoopbackBaseURL(process.env.BASE_URL || 'http://localhost:3001')
+function isLoopbackBaseURL(input: string) {
+  try {
+    const url = new URL(input)
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+  } catch {
+    return input.includes('localhost') || input.includes('127.0.0.1')
+  }
+}
+
+export function resolveConfiguredBaseURL(input: string | undefined, currentSuite: string) {
+  const normalized = normalizeLoopbackBaseURL(String(input ?? '').trim())
+  const requiresExplicitBaseURL = currentSuite === 'homologation' || currentSuite === 'production-smoke'
+  if (!normalized) {
+    if (requiresExplicitBaseURL) {
+      throw new Error(HOMOLOGATION_BASE_URL_ERROR)
+    }
+    return undefined
+  }
+  if (requiresExplicitBaseURL && isLoopbackBaseURL(normalized)) {
+    throw new Error(LOCALHOST_HOMOLOGATION_ERROR)
+  }
+  return normalized
+}
+
 const devtools = process.env.E2E_DEVTOOLS === '1'
 const suite = (process.env.PW_SUITE || 'local-regression').trim()
 const runId = (process.env.PW_RUN_ID || '').trim()
+const baseURL = resolveConfiguredBaseURL(process.env.BASE_URL, suite)
 
-function shouldWriteArtifactsOutsideRepo(currentBaseURL: string) {
+function shouldWriteArtifactsOutsideRepo(currentBaseURL?: string) {
+  if (!currentBaseURL) return false
   if (process.env.PW_ARTIFACTS_IN_REPO === '1') return false
   try {
     const parsed = new URL(currentBaseURL)
@@ -91,7 +122,7 @@ export default defineConfig({
   ...(selectedTestIgnore ? { testIgnore: selectedTestIgnore } : {}),
   ...(selectedTestMatch ? { testMatch: selectedTestMatch } : {}),
   use: {
-    baseURL,
+    ...(baseURL ? { baseURL } : {}),
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'retain-on-failure',
