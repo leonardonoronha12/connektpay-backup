@@ -102,8 +102,8 @@ function buildReceiver(overrides?: Record<string, unknown>) {
     trade_name: 'Empresa Teste',
     birth_date: null,
     legal_responsible_name: 'Maria Silva',
-    legal_responsible_document: '12345678901',
-    document: '12345678000199',
+    legal_responsible_document: '11144477735',
+    document: '45723174000110',
     email: 'financeiro@empresa.com',
     phone: '11999990000',
     address: {
