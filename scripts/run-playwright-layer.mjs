@@ -291,8 +291,56 @@ async function waitForHttpReady(baseURL, child, label) {
   throw new Error(`${LOCAL_REGRESSION_SERVER_START_ERROR} Timeout aguardando readiness HTTP em ${loginUrl}.`)
 }
 
+async function warmLocalRegressionRoutes(baseURL) {
+  const requests = [
+    { path: '/login', method: 'GET' },
+    { path: '/dashboard', method: 'GET' },
+    { path: '/api/me', method: 'GET' },
+    { path: '/api/notifications?limit=6', method: 'GET' },
+    { path: '/api/transactions', method: 'GET' },
+    { path: '/api/receivers', method: 'GET' },
+    { path: '/api/dashboard?days=30', method: 'GET' },
+    { path: '/api/onboarding/ensure', method: 'POST' },
+  ]
+
+  for (const request of requests) {
+    try {
+      await fetch(new URL(request.path, baseURL), {
+        method: request.method,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(10_000),
+        headers: request.method === 'POST' ? { 'content-type': 'application/json' } : undefined,
+        body: request.method === 'POST' ? '{}' : undefined,
+      })
+    } catch {}
+  }
+
+  await sleep(1_000)
+}
+
 async function stopChildProcess(child) {
   if (!child || child.exitCode !== null) return
+
+  if (process.platform === 'win32') {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, LOCAL_REGRESSION_SERVER_STOP_TIMEOUT_MS)
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        cwd: rootDir,
+        stdio: 'ignore',
+        shell: true,
+      })
+
+      killer.once('exit', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+      killer.once('error', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+    return
+  }
 
   await new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -336,6 +384,7 @@ async function withLocalRegressionServer(env, run) {
 
   try {
     await waitForHttpReady(baseURL, child, 'Servidor local')
+    await warmLocalRegressionRoutes(baseURL)
     return await run()
   } finally {
     await stopChildProcess(child)
