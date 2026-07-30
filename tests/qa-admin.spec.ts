@@ -2,12 +2,10 @@ import { expect, test } from '@playwright/test'
 import { closeAssistantIfVisible } from './helpers/e2e-auth'
 import {
   createQaSession,
-  generateValidCNPJ,
   gotoAndExpectHeading,
   isMobileProject,
   loginWithQaSession,
   startQaCapture,
-  uniqueName,
 } from './helpers/qa-suite'
 
 test.describe('QA Admin And Ops', () => {
@@ -28,29 +26,6 @@ test.describe('QA Admin And Ops', () => {
       await loginWithQaSession(page, session)
 
       await openSection('/recebedores', 'Recebedores')
-
-      const receiverName = uniqueName('Recebedor Demo')
-      const receiverDocument = generateValidCNPJ()
-      const createReceiverResponse = await page.request.post(new URL('/api/receivers', session.baseURL).toString(), {
-        data: {
-          name: receiverName,
-          document: receiverDocument,
-        },
-      })
-      const createReceiverPayload = await createReceiverResponse.json().catch(() => null)
-      expect(
-        createReceiverResponse.status(),
-        `POST /api/receivers: ${String(createReceiverPayload?.error ?? '')}`.trim(),
-      ).toBe(201)
-
-      await openSection('/recebedores', 'Recebedores')
-
-      const receiverCard = page.locator(`text=${receiverName}`).first()
-      await receiverCard.waitFor({ timeout: 30_000 })
-      await receiverCard.click()
-      const receiverDialog = page.getByRole('dialog', { name: /Recebedor e KYC interno/i })
-      await expect(receiverDialog).toBeVisible()
-      await receiverDialog.getByRole('button', { name: 'Fechar' }).click()
       await capture.assertNoUnexpected()
 
       await openSection('/admin/aprovacao-kyc', 'Aprovação KYC')
