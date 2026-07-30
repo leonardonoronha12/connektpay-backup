@@ -1,15 +1,14 @@
-import { getFinancialEnvironment, getFinancialProvider, isPagarMeWebhookConfigured, isSupabaseServiceConfigured } from '@/lib/env'
+import { getFinancialEnvironment, getFinancialProvider, isSupabaseServiceConfigured } from '@/lib/env'
 import { processWebhookEventById } from '@/lib/webhook-processor'
 import {
   getPagarmeWebhookBasicAuthConfig,
-  getPagarmeWebhookBasicAuthDiagnostic,
   isPagarmeWebhookBasicAuthConfigured,
   verifyPagarmeWebhookBasicAuth,
 } from '@/lib/webhook-basic-auth'
 import { type IncomingWebhook, buildWebhookProviderEventId, getWebhookSignatureConfig, getWebhookSignatureHeader, verifyWebhookSignature } from '@/lib/webhook-signature'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import { checkRuntimeRateLimit, getRequestClientIp } from '@/lib/runtime-guards'
-import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server.js'
 
 function json(data: unknown, init?: ResponseInit) {
   return NextResponse.json(data, init)
@@ -164,8 +163,6 @@ export async function POST(request: Request) {
   }
   if (!body?.type) return json({ error: 'Missing type' }, { status: 400 })
 
-  const supabase = getSupabaseAdminClient()
-
   const payload = body.data ?? {}
   const meta = extractProviderMetadata(payload)
 
@@ -186,15 +183,18 @@ export async function POST(request: Request) {
     )
   }
   if (providerId === 'pagarme') {
-    if (process.env.NODE_ENV === 'production' && !isPagarMeWebhookConfigured()) {
-      return json({ error: 'Webhook basic auth not configured' }, { status: 503 })
+    const authConfig = getPagarmeWebhookBasicAuthConfig()
+    if (!isPagarmeWebhookBasicAuthConfigured(authConfig)) {
+      console.error('[webhooks] Missing Pagar.me webhook basic auth configuration', {
+        code: 'webhook_auth_not_configured',
+        usernameConfigured: Boolean(authConfig.username?.trim()),
+        passwordConfigured: Boolean(authConfig.password?.trim()),
+      })
+      return json({ error: 'Webhook basic auth not configured', code: 'webhook_auth_not_configured' }, { status: 503 })
     }
 
-    const authConfig = getPagarmeWebhookBasicAuthConfig()
-    if (isPagarmeWebhookBasicAuthConfigured(authConfig)) {
-      const authResult = verifyPagarmeWebhookBasicAuth(request.headers.get('authorization'), authConfig)
-      if (!authResult.ok) return jsonUnauthorized({ error: 'Invalid webhook authorization' })
-    }
+    const authResult = verifyPagarmeWebhookBasicAuth(request.headers.get('authorization'), authConfig)
+    if (!authResult.ok) return jsonUnauthorized({ error: 'Invalid webhook authorization' })
   } else {
     const signatureConfig = getWebhookSignatureConfig()
     const secret = signatureConfig.secret
@@ -211,6 +211,8 @@ export async function POST(request: Request) {
       if (!ok) return json({ error: 'Invalid signature' }, { status: 401 })
     }
   }
+
+  const supabase = getSupabaseAdminClient()
 
   const providerEventId = buildWebhookProviderEventId(body, raw)
   const webhookClientIp = getRequestClientIp(request)

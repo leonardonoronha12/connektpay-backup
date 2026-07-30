@@ -27,6 +27,12 @@ const LOCAL_REGRESSION_SERVER_OCCUPIED_ERROR =
 const LOCAL_REGRESSION_SERVER_READY_TIMEOUT_MS = 120_000
 const LOCAL_REGRESSION_SERVER_STOP_TIMEOUT_MS = 10_000
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const LOCAL_PAGARME_WEBHOOK_TEST_ENV = {
+  FINANCIAL_PROVIDER: 'pagarme',
+  PAGARME_ENVIRONMENT: 'sandbox',
+  PAGARME_WEBHOOK_USERNAME: 'webhook-user',
+  PAGARME_WEBHOOK_PASSWORD: 'sup3r:s3cret!',
+}
 
 const criticalDesktopSpecs = [
   'tests/qa-auth.spec.ts',
@@ -48,6 +54,8 @@ const reconciliationSpecs = ['tests/reconciliation.spec.ts']
 const notificationsSpecs = ['tests/notifications.spec.ts']
 
 const directSpecMap = new Map([
+  ['tests/pagarme-webhook-route.spec.ts', ['tests/pagarme-webhook-route.spec.ts']],
+  ['pagarme-webhook-route.spec.ts', ['tests/pagarme-webhook-route.spec.ts']],
   ['tests/qa-auth.spec.ts', ['tests/qa-auth.spec.ts']],
   ['tests/qa-dashboard.spec.ts', ['tests/qa-dashboard.spec.ts']],
   ['tests/qa-payment-links.spec.ts', ['tests/qa-payment-links.spec.ts']],
@@ -246,6 +254,16 @@ function resolveLocalRegressionBaseUrl(env) {
   return LOCAL_REGRESSION_BASE_URL
 }
 
+function shouldInjectLocalPagarmeWebhookEnv(args) {
+  const targetPaths = new Set([
+    normalizeInputPath('tests/pagarme-webhook-route.spec.ts'),
+    normalizeInputPath('pagarme-webhook-route.spec.ts'),
+  ])
+  return args
+    .map((arg) => normalizeInputPath(arg))
+    .some((arg) => targetPaths.has(arg))
+}
+
 function logCommand(label, args, env) {
   const display = [`node ${path.relative(rootDir, cliPath)}`, ...args].join(' ')
   const suite = env.PW_SUITE ? ` PW_SUITE=${env.PW_SUITE}` : ''
@@ -400,6 +418,11 @@ async function runPlaywright(label, args, extraEnv = {}) {
 
   if ((env.PW_SUITE || 'local-regression') === 'local-regression') {
     env.BASE_URL = resolveLocalRegressionBaseUrl(env)
+    if (shouldInjectLocalPagarmeWebhookEnv(args)) {
+      for (const [key, value] of Object.entries(LOCAL_PAGARME_WEBHOOK_TEST_ENV)) {
+        if (!String(env[key] || '').trim()) env[key] = value
+      }
+    }
   }
 
   logCommand(label, args, env)
