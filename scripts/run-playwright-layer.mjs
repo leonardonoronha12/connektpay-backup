@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import net from 'node:net'
 import path from 'node:path'
 
 const rootDir = process.cwd()
@@ -19,6 +20,13 @@ const passthroughArgs = rawArgs.filter((arg) => arg !== '--dry-run' && !arg.star
 const LOCAL_REGRESSION_BASE_URL = 'http://localhost:3001'
 const LOCAL_REGRESSION_BASE_URL_ERROR =
   'LOCAL_BASE_URL para a suíte local-regression deve apontar explicitamente para localhost/127.0.0.1.'
+const LOCAL_REGRESSION_SERVER_START_ERROR =
+  'Não foi possível iniciar o servidor local da suíte local-regression.'
+const LOCAL_REGRESSION_SERVER_OCCUPIED_ERROR =
+  'A porta da suíte local-regression já está ocupada por outro processo. Encerre a instância externa antes de usar o runner automático.'
+const LOCAL_REGRESSION_SERVER_READY_TIMEOUT_MS = 120_000
+const LOCAL_REGRESSION_SERVER_STOP_TIMEOUT_MS = 10_000
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
 const criticalDesktopSpecs = [
   'tests/qa-auth.spec.ts',
@@ -245,7 +253,96 @@ function logCommand(label, args, env) {
   console.log(`\n[${label}]${suite}${runId}\n${display}`)
 }
 
-function runPlaywright(label, args, extraEnv = {}) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function isPortBusy(hostname, port) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: hostname, port })
+    socket.once('connect', () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once('error', () => resolve(false))
+  })
+}
+
+async function waitForHttpReady(baseURL, child, label) {
+  const loginUrl = new URL('/login', baseURL).toString()
+  const deadline = Date.now() + LOCAL_REGRESSION_SERVER_READY_TIMEOUT_MS
+
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`${LOCAL_REGRESSION_SERVER_START_ERROR} ${label} encerrou prematuramente com código ${child.exitCode}.`)
+    }
+
+    try {
+      const response = await fetch(loginUrl, {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(5_000),
+      })
+      if (response.status < 500) return
+    } catch {}
+
+    await sleep(1_000)
+  }
+
+  throw new Error(`${LOCAL_REGRESSION_SERVER_START_ERROR} Timeout aguardando readiness HTTP em ${loginUrl}.`)
+}
+
+async function stopChildProcess(child) {
+  if (!child || child.exitCode !== null) return
+
+  await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      resolve()
+    }, LOCAL_REGRESSION_SERVER_STOP_TIMEOUT_MS)
+
+    child.once('exit', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+
+    child.kill('SIGTERM')
+  })
+}
+
+async function withLocalRegressionServer(env, run) {
+  const baseURL = env.BASE_URL
+  const parsedBaseURL = new URL(baseURL)
+
+  if (await isPortBusy(parsedBaseURL.hostname, Number(parsedBaseURL.port || 80))) {
+    throw new Error(`${LOCAL_REGRESSION_SERVER_OCCUPIED_ERROR} Porta ${parsedBaseURL.port || 80} em ${baseURL}.`)
+  }
+
+  const serverEnv = {
+    ...process.env,
+    ...env,
+  }
+  const serverArgs = ['run', 'dev', '--', '--hostname', parsedBaseURL.hostname, '--port', String(parsedBaseURL.port || 80)]
+  console.log(`\n[local-regression-server]\n${npmCommand} ${serverArgs.join(' ')}`)
+
+  const child = spawn(npmCommand, serverArgs, {
+    cwd: rootDir,
+    env: serverEnv,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: process.platform === 'win32',
+  })
+
+  child.stdout.on('data', (chunk) => process.stdout.write(String(chunk)))
+  child.stderr.on('data', (chunk) => process.stderr.write(String(chunk)))
+
+  try {
+    await waitForHttpReady(baseURL, child, 'Servidor local')
+    return await run()
+  } finally {
+    await stopChildProcess(child)
+  }
+}
+
+async function runPlaywright(label, args, extraEnv = {}) {
   const env = {
     ...process.env,
     PW_SUITE: 'local-regression',
@@ -260,26 +357,33 @@ function runPlaywright(label, args, extraEnv = {}) {
 
   if (dryRun) return Promise.resolve()
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cliPath, ...args], {
-      cwd: rootDir,
-      env,
-      stdio: 'inherit',
+  const execute = () =>
+    new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [cliPath, ...args], {
+        cwd: rootDir,
+        env,
+        stdio: 'inherit',
+      })
+
+      child.on('exit', (code, signal) => {
+        if (signal) {
+          reject(new Error(`${label} interrompido por sinal ${signal}.`))
+          return
+        }
+        if (code !== 0) {
+          reject(new Error(`${label} falhou com código ${code}.`))
+          return
+        }
+        resolve()
+      })
+      child.on('error', reject)
     })
 
-    child.on('exit', (code, signal) => {
-      if (signal) {
-        reject(new Error(`${label} interrompido por sinal ${signal}.`))
-        return
-      }
-      if (code !== 0) {
-        reject(new Error(`${label} falhou com código ${code}.`))
-        return
-      }
-      resolve()
-    })
-    child.on('error', reject)
-  })
+  if ((env.PW_SUITE || 'local-regression') === 'local-regression') {
+    return withLocalRegressionServer(env, execute)
+  }
+
+  return execute()
 }
 
 async function runCritical() {
