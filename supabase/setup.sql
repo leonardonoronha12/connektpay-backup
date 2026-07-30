@@ -748,7 +748,7 @@ revoke update, delete on public.audit_logs from authenticated;
 create table if not exists public.conciliation_runs (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
-  provider text not null default 'mygateway',
+  provider text not null,
   started_at timestamptz not null default now(),
   finished_at timestamptz null,
   status text not null default 'running',
@@ -762,18 +762,31 @@ alter table public.conciliation_runs
   add column if not exists updated_at timestamptz null;
 
 alter table public.conciliation_runs
-  alter column provider set default 'mygateway';
-
-update public.conciliation_runs
-set provider = coalesce(provider, 'mygateway')
-where provider is null;
+  alter column provider drop default;
 
 update public.conciliation_runs
 set updated_at = coalesce(updated_at, now())
 where updated_at is null;
 
-alter table public.conciliation_runs
-  alter column provider set not null;
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'conciliation_runs'
+      and column_name = 'provider'
+      and is_nullable = 'YES'
+  ) then
+    if exists (select 1 from public.conciliation_runs where provider is null) then
+      if not exists (select 1 from pg_constraint where conname = 'conciliation_runs_provider_required') then
+        execute 'alter table public.conciliation_runs add constraint conciliation_runs_provider_required check (provider is not null) not valid';
+      end if;
+    else
+      execute 'alter table public.conciliation_runs alter column provider set not null';
+    end if;
+  end if;
+end $$;
 
 do $$
 begin
@@ -1445,8 +1458,11 @@ create table if not exists public.pay_antecipacao (
 );
 
 alter table public.pay_antecipacao
+  add column if not exists acquirer_anticipation_id text null,
   add column if not exists provider_reference text null,
   add column if not exists provider_payload jsonb not null default '{}'::jsonb,
+  add column if not exists provider_status text null,
+  add column if not exists provider_last_error text null,
   add column if not exists is_internal boolean not null default false,
   add column if not exists eligible_amount_centavos bigint null,
   add column if not exists estimated_fee_centavos bigint null,
@@ -1598,7 +1614,7 @@ create table if not exists public.pay_conciliation_runs (
   started_at timestamptz not null default now(),
   finished_at timestamptz null,
   status text not null default 'running',
-  provider text not null default 'mygateway',
+  provider text not null,
   period_start timestamptz null,
   period_end timestamptz null,
   total_internal_amount_centavos bigint not null default 0,
@@ -1628,9 +1644,11 @@ alter table public.pay_conciliation_runs
   add column if not exists created_at timestamptz null,
   add column if not exists updated_at timestamptz null;
 
+alter table public.pay_conciliation_runs
+  alter column provider drop default;
+
 update public.pay_conciliation_runs
 set
-  provider = coalesce(provider, 'mygateway'),
   total_internal_amount_centavos = coalesce(total_internal_amount_centavos, 0),
   total_provider_amount_centavos = coalesce(total_provider_amount_centavos, 0),
   total_difference_centavos = coalesce(total_difference_centavos, 0),
@@ -1641,8 +1659,7 @@ set
   created_at = coalesce(created_at, now()),
   updated_at = coalesce(updated_at, now())
 where
-  provider is null
-  or total_internal_amount_centavos is null
+  total_internal_amount_centavos is null
   or total_provider_amount_centavos is null
   or total_difference_centavos is null
   or total_checked is null
@@ -1653,7 +1670,6 @@ where
   or updated_at is null;
 
 alter table public.pay_conciliation_runs
-  alter column provider set not null,
   alter column total_internal_amount_centavos set not null,
   alter column total_provider_amount_centavos set not null,
   alter column total_difference_centavos set not null,
@@ -1663,6 +1679,26 @@ alter table public.pay_conciliation_runs
   alter column summary set not null,
   alter column created_at set not null,
   alter column updated_at set not null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'pay_conciliation_runs'
+      and column_name = 'provider'
+      and is_nullable = 'YES'
+  ) then
+    if exists (select 1 from public.pay_conciliation_runs where provider is null) then
+      if not exists (select 1 from pg_constraint where conname = 'pay_conciliation_runs_provider_required') then
+        execute 'alter table public.pay_conciliation_runs add constraint pay_conciliation_runs_provider_required check (provider is not null) not valid';
+      end if;
+    else
+      execute 'alter table public.pay_conciliation_runs alter column provider set not null';
+    end if;
+  end if;
+end $$;
 
 do $$
 begin
