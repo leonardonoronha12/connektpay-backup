@@ -9,6 +9,17 @@ import {
 } from '@/lib/payouts-internal-core'
 import { createPayoutInternal, deletePayoutInternal, updatePayoutInternal } from '@/lib/payouts-internal-service'
 
+const ORIGINAL_FINANCIAL_PROVIDER = process.env.FINANCIAL_PROVIDER
+
+test.beforeEach(() => {
+  process.env.FINANCIAL_PROVIDER = 'mygateway'
+})
+
+test.afterEach(() => {
+  if (typeof ORIGINAL_FINANCIAL_PROVIDER === 'string') process.env.FINANCIAL_PROVIDER = ORIGINAL_FINANCIAL_PROVIDER
+  else delete process.env.FINANCIAL_PROVIDER
+})
+
 type TableName = 'receivers' | 'payouts' | 'payout_events' | 'ledger_entries' | 'audit_logs'
 
 type MockDatabase = {
