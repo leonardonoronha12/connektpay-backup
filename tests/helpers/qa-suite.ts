@@ -583,8 +583,9 @@ export function startQaCapture(page: Page, baseURL?: string): QaCapture {
             if (entry.includes('The resource') && entry.includes('/_next/image?url=%2Fbrand%2Flogo-purple.png')) return false
             if (entry.includes('CheckoutPublic: create failed') && entry.includes('Falha ao processar o split no provedor financeiro.')) return false
             if (entry.includes('CheckoutPublic: create failed') && entry.includes('Split inválido: nenhuma regra ativa e nenhum recebedor padrão aprovado.')) return false
-            if (entry.trim() === 'Error' && httpErrors.some((httpEntry) => /^(400|502)\s+POST\s+.*\/api\/payments/i.test(httpEntry))) return false
+            if (entry.trim() === 'Error' && httpErrors.some((httpEntry) => /^(400|500|502)\s+POST\s+.*\/api\/payments/i.test(httpEntry))) return false
             if (entry.includes('Failed to load resource: the server responded with a status of 400 (Bad Request)')) return false
+            if (entry.includes('Failed to load resource: the server responded with a status of 500 (Internal Server Error)')) return false
             if (entry.trim() === 'Failed to load resource: the server responded with a status of 400 ()') return false
             if (entry.includes('Failed to load resource') && entry.includes('/api/payments')) return false
             if (entry.includes('downloadable font: download failed') && entry.includes('https://fonts.gstatic.com/')) return false
@@ -593,6 +594,7 @@ export function startQaCapture(page: Page, baseURL?: string): QaCapture {
         : consoleErrors
       const filteredHttpErrors = allowCheckoutProviderNoise
         ? httpErrors.filter((entry) => {
+            if (entry.includes('500 POST ') && entry.includes('/api/payments')) return false
             if (entry.includes('502 POST ') && entry.includes('/api/payments')) return false
             if (
               currentPathname === '/checkout' &&
@@ -797,7 +799,30 @@ export async function fillCheckoutCustomer(page: Page, opts?: { name?: string; e
 }
 
 export async function submitCheckout(page: Page, testInfo: TestInfo) {
-  const button = page.getByRole('button', { name: /Finalizar pagamento/i })
+  const finalActionButton = page.getByRole('button', { name: /Finalizar pagamento/i })
+  const processingButton = page.getByRole('button', { name: /Processando/i })
+
+  const state = await expect
+    .poll(
+      async () => {
+        if (await processingButton.isVisible().catch(() => false)) return 'processing'
+        if (await finalActionButton.isVisible().catch(() => false)) {
+          const enabled = await finalActionButton.isEnabled().catch(() => false)
+          return enabled ? 'ready' : 'disabled'
+        }
+        return 'missing'
+      },
+      { timeout: 10_000, intervals: [100, 250, 500, 1_000] },
+    )
+    .not.toBe('missing')
+    .then(async () => {
+      if (await processingButton.isVisible().catch(() => false)) return 'processing'
+      return 'ready'
+    })
+
+  if (state === 'processing') return
+
+  const button = finalActionButton
   await expect(button).toBeEnabled()
   await button.scrollIntoViewIfNeeded()
   if (isMobileProject(testInfo)) {

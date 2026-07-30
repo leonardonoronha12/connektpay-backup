@@ -33,6 +33,10 @@ const LOCAL_PAGARME_WEBHOOK_TEST_ENV = {
   PAGARME_WEBHOOK_USERNAME: 'webhook-user',
   PAGARME_WEBHOOK_PASSWORD: 'sup3r:s3cret!',
 }
+const LOCAL_PAGARME_CHECKOUT_TEST_ENV = {
+  FINANCIAL_PROVIDER: 'pagarme',
+  PAGARME_ENVIRONMENT: 'sandbox',
+}
 
 const criticalDesktopSpecs = [
   'tests/qa-auth.spec.ts',
@@ -264,6 +268,16 @@ function shouldInjectLocalPagarmeWebhookEnv(args) {
     .some((arg) => targetPaths.has(arg))
 }
 
+function shouldInjectLocalPagarmeCheckoutEnv(args) {
+  const targetPaths = new Set([
+    normalizeInputPath('tests/qa-checkout.spec.ts'),
+    normalizeInputPath('qa-checkout.spec.ts'),
+  ])
+  return args
+    .map((arg) => normalizeInputPath(arg))
+    .some((arg) => targetPaths.has(arg))
+}
+
 function logCommand(label, args, env) {
   const display = [`node ${path.relative(rootDir, cliPath)}`, ...args].join(' ')
   const suite = env.PW_SUITE ? ` PW_SUITE=${env.PW_SUITE}` : ''
@@ -418,6 +432,11 @@ async function runPlaywright(label, args, extraEnv = {}) {
 
   if ((env.PW_SUITE || 'local-regression') === 'local-regression') {
     env.BASE_URL = resolveLocalRegressionBaseUrl(env)
+    if (shouldInjectLocalPagarmeCheckoutEnv(args)) {
+      for (const [key, value] of Object.entries(LOCAL_PAGARME_CHECKOUT_TEST_ENV)) {
+        if (!String(env[key] || '').trim()) env[key] = value
+      }
+    }
     if (shouldInjectLocalPagarmeWebhookEnv(args)) {
       for (const [key, value] of Object.entries(LOCAL_PAGARME_WEBHOOK_TEST_ENV)) {
         if (!String(env[key] || '').trim()) env[key] = value
