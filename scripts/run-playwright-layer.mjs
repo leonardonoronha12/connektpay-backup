@@ -16,6 +16,10 @@ const dryRun = rawArgs.includes('--dry-run')
 const explicitRunId = rawArgs.find((arg) => arg.startsWith('--run-id='))?.slice('--run-id='.length).trim() || ''
 const passthroughArgs = rawArgs.filter((arg) => arg !== '--dry-run' && !arg.startsWith('--run-id='))
 
+const LOCAL_REGRESSION_BASE_URL = 'http://localhost:3001'
+const LOCAL_REGRESSION_BASE_URL_ERROR =
+  'LOCAL_BASE_URL para a suíte local-regression deve apontar explicitamente para localhost/127.0.0.1.'
+
 const criticalDesktopSpecs = [
   'tests/qa-auth.spec.ts',
   'tests/rbac.spec.ts',
@@ -186,6 +190,54 @@ function pickRunId(prefix) {
   return explicitRunId || buildRunId(prefix)
 }
 
+function normalizeBaseUrl(input) {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  try {
+    const parsed = new URL(raw)
+    if (parsed.hostname === '127.0.0.1') parsed.hostname = 'localhost'
+    return parsed.toString().replace(/\/$/, '')
+  } catch {
+    return raw.replace(/\/$/, '')
+  }
+}
+
+function isLoopbackBaseUrl(input) {
+  try {
+    const parsed = new URL(input)
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+  } catch {
+    return input.includes('localhost') || input.includes('127.0.0.1')
+  }
+}
+
+function isPlaceholderBaseUrl(input) {
+  try {
+    const parsed = new URL(input)
+    return /(^|\.)example\.vercel\.app$/i.test(parsed.hostname)
+  } catch {
+    return /example\.vercel\.app/i.test(input)
+  }
+}
+
+function resolveLocalRegressionBaseUrl(env) {
+  const explicitLocalBaseUrl = normalizeBaseUrl(env.LOCAL_BASE_URL)
+  if (explicitLocalBaseUrl) {
+    if (!isLoopbackBaseUrl(explicitLocalBaseUrl)) {
+      throw new Error(LOCAL_REGRESSION_BASE_URL_ERROR)
+    }
+    return explicitLocalBaseUrl
+  }
+
+  const inheritedBaseUrl = normalizeBaseUrl(env.BASE_URL)
+  if (!inheritedBaseUrl) return LOCAL_REGRESSION_BASE_URL
+  if (isLoopbackBaseUrl(inheritedBaseUrl)) return inheritedBaseUrl
+
+  const reason = isPlaceholderBaseUrl(inheritedBaseUrl) ? 'placeholder' : 'remota'
+  console.warn(`[local-regression] Ignorando BASE_URL ${reason} (${inheritedBaseUrl}) e usando ${LOCAL_REGRESSION_BASE_URL}.`)
+  return LOCAL_REGRESSION_BASE_URL
+}
+
 function logCommand(label, args, env) {
   const display = [`node ${path.relative(rootDir, cliPath)}`, ...args].join(' ')
   const suite = env.PW_SUITE ? ` PW_SUITE=${env.PW_SUITE}` : ''
@@ -198,6 +250,10 @@ function runPlaywright(label, args, extraEnv = {}) {
     ...process.env,
     PW_SUITE: 'local-regression',
     ...extraEnv,
+  }
+
+  if ((env.PW_SUITE || 'local-regression') === 'local-regression') {
+    env.BASE_URL = resolveLocalRegressionBaseUrl(env)
   }
 
   logCommand(label, args, env)

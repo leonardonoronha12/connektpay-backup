@@ -21,6 +21,17 @@ import {
   simulateAnticipation,
 } from '@/lib/anticipation-service'
 
+const ORIGINAL_FINANCIAL_PROVIDER = process.env.FINANCIAL_PROVIDER
+
+test.beforeEach(() => {
+  process.env.FINANCIAL_PROVIDER = 'mygateway'
+})
+
+test.afterEach(() => {
+  if (typeof ORIGINAL_FINANCIAL_PROVIDER === 'string') process.env.FINANCIAL_PROVIDER = ORIGINAL_FINANCIAL_PROVIDER
+  else delete process.env.FINANCIAL_PROVIDER
+})
+
 type TableName = 'receivers' | 'pay_antecipacao' | 'pay_antecipacao_events' | 'ledger_entries' | 'audit_logs'
 
 type MockDatabase = {
