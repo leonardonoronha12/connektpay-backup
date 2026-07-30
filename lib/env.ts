@@ -53,6 +53,7 @@ export type FinancialRuntimeConfig = {
 }
 
 const SUPPORTED_FINANCIAL_PROVIDERS = ['mygateway', 'pagarme'] as const
+const SUPPORTED_PAGARME_ENVIRONMENTS = ['sandbox', 'production'] as const
 
 export function getFinancialProvider(): ProviderId {
   const raw = process.env.FINANCIAL_PROVIDER
@@ -117,13 +118,21 @@ function isSandboxLikeUrl(value: string | null | undefined) {
 }
 
 function getPagarMeConfiguredEnvironment(): FinancialProviderEnvironment {
-  const explicit = normalizeFinancialEnvironment(process.env.PAGARME_ENVIRONMENT)
-  if (explicit) return explicit
+  const raw = process.env.PAGARME_ENVIRONMENT
+  if (!raw || !raw.trim()) {
+    throw new Error(
+      `PAGARME_ENVIRONMENT must be explicitly set to one of: ${SUPPORTED_PAGARME_ENVIRONMENTS.join(', ')}`,
+    )
+  }
 
-  const secretKey = safeTrim(process.env.PAGARME_SECRET_KEY)
-  if (secretKey.startsWith('sk_test_')) return 'sandbox'
-  if (isSandboxLikeUrl(getPagarMePublicBaseUrl())) return 'sandbox'
-  return 'production'
+  const explicit = normalizeFinancialEnvironment(raw)
+  if (!explicit) {
+    throw new Error(
+      `Unsupported PAGARME_ENVIRONMENT: ${raw.trim()}. Supported values: ${SUPPORTED_PAGARME_ENVIRONMENTS.join(', ')}`,
+    )
+  }
+
+  return explicit
 }
 
 function getDeploymentOrigin(environment: FinancialProviderEnvironment) {
@@ -263,9 +272,6 @@ export function getFinancialEnvironment(providerId = getFinancialProvider()): Fi
     const publicAppId = getPagarMePublicAppId()
     const secretKey = safeTrim(process.env.PAGARME_SECRET_KEY)
 
-    if (!normalizeFinancialEnvironment(process.env.PAGARME_ENVIRONMENT)) {
-      warnings.push('PAGARME_ENVIRONMENT não está definido; o ambiente está sendo inferido a partir da chave/base URL.')
-    }
     if (environment === 'sandbox' && secretKey.startsWith('sk_live_')) {
       warnings.push('Ambiente marcado como sandbox, mas a secret parece ser live.')
     }
