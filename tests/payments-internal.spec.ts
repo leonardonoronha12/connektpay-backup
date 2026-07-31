@@ -460,6 +460,34 @@ function createInheritedGlobalLegacySplitSeed() {
 }
 
 test.describe('payments internal phase 2', () => {
+  const originalEnv = {
+    FINANCIAL_PROVIDER: process.env.FINANCIAL_PROVIDER,
+    PAGARME_ENVIRONMENT: process.env.PAGARME_ENVIRONMENT,
+    PAGARME_BASE_URL: process.env.PAGARME_BASE_URL,
+    PAGARME_SECRET_KEY: process.env.PAGARME_SECRET_KEY,
+  }
+
+  test.beforeEach(() => {
+    process.env.FINANCIAL_PROVIDER = 'pagarme'
+    process.env.PAGARME_ENVIRONMENT = 'sandbox'
+    process.env.PAGARME_BASE_URL = 'https://api.pagar.me/core/v5'
+    process.env.PAGARME_SECRET_KEY = 'sk_test_123'
+  })
+
+  test.afterEach(() => {
+    if (typeof originalEnv.FINANCIAL_PROVIDER === 'string') process.env.FINANCIAL_PROVIDER = originalEnv.FINANCIAL_PROVIDER
+    else delete process.env.FINANCIAL_PROVIDER
+
+    if (typeof originalEnv.PAGARME_ENVIRONMENT === 'string') process.env.PAGARME_ENVIRONMENT = originalEnv.PAGARME_ENVIRONMENT
+    else delete process.env.PAGARME_ENVIRONMENT
+
+    if (typeof originalEnv.PAGARME_BASE_URL === 'string') process.env.PAGARME_BASE_URL = originalEnv.PAGARME_BASE_URL
+    else delete process.env.PAGARME_BASE_URL
+
+    if (typeof originalEnv.PAGARME_SECRET_KEY === 'string') process.env.PAGARME_SECRET_KEY = originalEnv.PAGARME_SECRET_KEY
+    else delete process.env.PAGARME_SECRET_KEY
+  })
+
   test('cria transacao interna completa antes do provider com snapshot e metadata segura', async () => {
     const supabase = createMockSupabase(createSplitSeed())
     const link = createValidLink()
