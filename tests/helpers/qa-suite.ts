@@ -753,7 +753,20 @@ export async function createPaymentLinkViaUi(
     })
     .toBe(true)
   await expect(page.getByRole('heading', { name: /Finalizar pagamento/i })).toBeVisible()
-  return { slug, name, description, amountBRL }
+  return {
+    slug,
+    name,
+    description,
+    amountBRL,
+    providerUrl: String(createPayload?.paymentLink?.provider_url ?? '').trim(),
+    providerSync:
+      createPayload?.providerSync && typeof createPayload.providerSync === 'object'
+        ? {
+            ok: Boolean(createPayload.providerSync.ok),
+            message: String(createPayload.providerSync.message ?? '').trim(),
+          }
+        : null,
+  }
 }
 
 export async function createPaymentLinkViaApi(

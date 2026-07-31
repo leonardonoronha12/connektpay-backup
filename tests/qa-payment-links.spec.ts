@@ -16,8 +16,21 @@ test.describe('QA Payment Links', () => {
       await expect(page.getByRole('link', { name: /Novo link/i }).first()).toBeVisible()
 
       const link = await createPaymentLinkViaUi(page)
+      const detailsResponse = await page.request.get(new URL(`/api/payment-links?slug=${encodeURIComponent(link.slug)}`, session.baseURL).toString())
+      const detailsPayload = await detailsResponse.json().catch(() => null)
+
+      expect(detailsResponse.ok(), `GET /api/payment-links?slug=: ${String(detailsPayload?.error ?? '')}`.trim()).toBeTruthy()
+      expect(link.providerUrl).toBe('')
+      expect(link.providerSync).toMatchObject({
+        ok: false,
+      })
+      expect(String(link.providerSync?.message ?? '')).toMatch(/white-label da Connekt Pay|checkout hospedado do provedor foi descontinuado/i)
+      expect(String(detailsPayload?.paymentLink?.provider_url ?? '').trim()).toBe('')
+      expect(String(detailsPayload?.paymentLink?.metadata?.provider_id ?? '').trim()).toBe('pagarme')
+      expect(String(detailsPayload?.paymentLink?.metadata?.checkout_mode ?? '').trim()).toBe('internal')
       await expect(page).toHaveURL(new RegExp(`/checkout\\?slug=${link.slug}`))
       await expect(page.getByRole('heading', { name: /Finalizar pagamento/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /Continuar no checkout seguro/i })).toHaveCount(0)
       await capture.assertNoUnexpected()
     } finally {
       capture.stop()
