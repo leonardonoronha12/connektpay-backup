@@ -11,7 +11,7 @@ import {
 } from './helpers/qa-suite'
 
 test.describe('QA Checkout', () => {
-  test('checkout público desktop usa slug próprio e não depende de execução anterior', async ({ page, baseURL }, testInfo) => {
+  test('checkout público desktop exibe erro controlado para invalid_credentials sem depender de execução anterior', async ({ page, baseURL }, testInfo) => {
     test.skip(isMobileProject(testInfo), 'Checkout mobile fica isolado em qa-mobile.spec.ts.')
     const session = await createQaSession(baseURL)
     const capture = startQaCapture(page, baseURL)
@@ -32,12 +32,26 @@ test.describe('QA Checkout', () => {
 
       await expect(page.getByRole('button', { name: /PIX/i })).toBeVisible()
 
+      const paymentResponsePromise = page
+        .waitForResponse((response) => response.url().includes('/api/payments') && response.request().method() === 'POST', {
+          timeout: 30_000,
+        })
+        .catch(() => null)
+
       await fillCheckoutCustomer(page)
       await submitCheckout(page, testInfo)
 
+      const paymentResponse = await paymentResponsePromise
+      const paymentPayload = await paymentResponse?.json().catch(() => null)
+      const isControlledProviderInvalidCredentials401 =
+        paymentResponse?.status() === 401 &&
+        paymentPayload?.code === 'invalid_credentials' &&
+        paymentPayload?.error === 'Credenciais inválidas do provedor financeiro.'
+      const invalidCredentialsError = page.getByText('Credenciais inválidas do provedor financeiro.').first()
+
       const controlledError = page
         .getByText(
-          /Falha ao processar o split|Não foi possível iniciar o pagamento|Não foi possível concluir sua solicitação\. Tente novamente\.|Split inválido|Erro/i,
+          /Falha ao processar o split|Não foi possível iniciar o pagamento|Não foi possível concluir sua solicitação\. Tente novamente\.|Split inválido|Credenciais inválidas do provedor financeiro\.|Erro/i,
         )
         .first()
       const awaitingConfirmation = page.getByText(/Aguardando confirmação em tempo real/i).first()
@@ -47,7 +61,13 @@ test.describe('QA Checkout', () => {
       ])
 
       expect(result, 'Checkout precisa avançar para erro controlado ou polling interno').toBeTruthy()
-      await capture.assertNoUnexpected({ allowCheckoutProviderNoise: true })
+      if (isControlledProviderInvalidCredentials401) {
+        await expect(invalidCredentialsError, 'O checkout deve exibir a mensagem controlada do provider para invalid_credentials.').toBeVisible()
+      }
+      await capture.assertNoUnexpected({
+        allowCheckoutPublicGuestNoise: true,
+        allowCheckoutProviderInvalidCredentials401: isControlledProviderInvalidCredentials401,
+      })
     } finally {
       capture.stop()
       await session.cleanup()

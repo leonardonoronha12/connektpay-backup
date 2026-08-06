@@ -17,7 +17,11 @@ type QaCapture = {
   httpErrors: string[]
   reset: () => void
   stop: () => void
-  assertNoUnexpected: (opts?: { allowCheckoutProviderNoise?: boolean }) => Promise<void>
+  assertNoUnexpected: (opts?: {
+    allowCheckoutProviderNoise?: boolean
+    allowCheckoutPublicGuestNoise?: boolean
+    allowCheckoutProviderInvalidCredentials401?: boolean
+  }) => Promise<void>
 }
 
 type UrlMatcher = string | RegExp | ((url: URL) => boolean)
@@ -558,8 +562,14 @@ export function startQaCapture(page: Page, baseURL?: string): QaCapture {
       httpErrors.length = 0
     },
     stop,
-    async assertNoUnexpected(opts?: { allowCheckoutProviderNoise?: boolean }) {
+    async assertNoUnexpected(opts?: {
+      allowCheckoutProviderNoise?: boolean
+      allowCheckoutPublicGuestNoise?: boolean
+      allowCheckoutProviderInvalidCredentials401?: boolean
+    }) {
       const allowCheckoutProviderNoise = Boolean(opts?.allowCheckoutProviderNoise)
+      const allowCheckoutPublicGuestNoise = Boolean(opts?.allowCheckoutPublicGuestNoise)
+      const allowCheckoutProviderInvalidCredentials401 = Boolean(opts?.allowCheckoutProviderInvalidCredentials401)
       const currentPathname = (() => {
         try {
           return new URL(page.url()).pathname
@@ -567,7 +577,8 @@ export function startQaCapture(page: Page, baseURL?: string): QaCapture {
           return page.url()
         }
       })()
-      const filteredPageErrors = allowCheckoutProviderNoise
+      const allowCheckoutNoise = allowCheckoutProviderNoise || allowCheckoutPublicGuestNoise
+      const filteredPageErrors = allowCheckoutNoise
         ? pageErrors.filter((entry) => {
             if (
               entry.includes('Loading chunk _app-pages-browser_node_modules_next_dist_client_dev_noop-turbopack-hmr_js failed') &&
@@ -578,24 +589,32 @@ export function startQaCapture(page: Page, baseURL?: string): QaCapture {
             return true
           })
         : pageErrors
-      const filteredConsoleErrors = allowCheckoutProviderNoise
+      const filteredConsoleErrors = allowCheckoutNoise
         ? consoleErrors.filter((entry) => {
             if (entry.includes('The resource') && entry.includes('/_next/image?url=%2Fbrand%2Flogo-purple.png')) return false
-            if (entry.includes('CheckoutPublic: create failed') && entry.includes('Falha ao processar o split no provedor financeiro.')) return false
-            if (entry.includes('CheckoutPublic: create failed') && entry.includes('Split inválido: nenhuma regra ativa e nenhum recebedor padrão aprovado.')) return false
-            if (entry.trim() === 'Error' && httpErrors.some((httpEntry) => /^(400|500|502)\s+POST\s+.*\/api\/payments/i.test(httpEntry))) return false
-            if (entry.includes('Failed to load resource: the server responded with a status of 400 (Bad Request)')) return false
-            if (entry.includes('Failed to load resource: the server responded with a status of 500 (Internal Server Error)')) return false
-            if (entry.trim() === 'Failed to load resource: the server responded with a status of 400 ()') return false
-            if (entry.includes('Failed to load resource') && entry.includes('/api/payments')) return false
+            if (allowCheckoutProviderNoise && entry.includes('CheckoutPublic: create failed') && entry.includes('Falha ao processar o split no provedor financeiro.')) return false
+            if (allowCheckoutProviderNoise && entry.includes('CheckoutPublic: create failed') && entry.includes('Split inválido: nenhuma regra ativa e nenhum recebedor padrão aprovado.')) return false
+            if (
+              allowCheckoutProviderInvalidCredentials401 &&
+              entry.includes('Failed to load resource: the server responded with a status of 401 (Unauthorized)') &&
+              httpErrors.some((httpEntry) => /^401\s+POST\s+.*\/api\/payments\b/i.test(httpEntry))
+            ) {
+              return false
+            }
+            if (allowCheckoutProviderNoise && entry.trim() === 'Error' && httpErrors.some((httpEntry) => /^(400|500|502)\s+POST\s+.*\/api\/payments/i.test(httpEntry))) return false
+            if (allowCheckoutProviderNoise && entry.includes('Failed to load resource: the server responded with a status of 400 (Bad Request)')) return false
+            if (allowCheckoutProviderNoise && entry.includes('Failed to load resource: the server responded with a status of 500 (Internal Server Error)')) return false
+            if (allowCheckoutProviderNoise && entry.trim() === 'Failed to load resource: the server responded with a status of 400 ()') return false
+            if (allowCheckoutProviderNoise && entry.includes('Failed to load resource') && entry.includes('/api/payments')) return false
             if (entry.includes('downloadable font: download failed') && entry.includes('https://fonts.gstatic.com/')) return false
             return true
           })
         : consoleErrors
-      const filteredHttpErrors = allowCheckoutProviderNoise
+      const filteredHttpErrors = allowCheckoutNoise
         ? httpErrors.filter((entry) => {
-            if (entry.includes('500 POST ') && entry.includes('/api/payments')) return false
-            if (entry.includes('502 POST ') && entry.includes('/api/payments')) return false
+            if (allowCheckoutProviderInvalidCredentials401 && entry.includes('401 POST ') && entry.includes('/api/payments')) return false
+            if (allowCheckoutProviderNoise && entry.includes('500 POST ') && entry.includes('/api/payments')) return false
+            if (allowCheckoutProviderNoise && entry.includes('502 POST ') && entry.includes('/api/payments')) return false
             if (
               currentPathname === '/checkout' &&
               /401\s+GET\s+.*\/api\/(transactions|receivers|dashboard|me)\b/i.test(entry)
