@@ -97,6 +97,20 @@ function getAnonClient() {
   return createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
 }
 
+async function isAppLoginReady(baseURL: string, email: string, password: string) {
+  const response = await fetch(new URL('/api/auth/login', baseURL).toString(), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  }).catch(() => null)
+
+  if (!response) return null
+  if (!response.ok) return null
+
+  const payload = await response.json().catch(() => null)
+  return payload?.ok === true ? true : null
+}
+
 export async function getBrowserCreds(baseURL: string, role: AppRole = 'owner'): Promise<BrowserCreds> {
   const normalizedBase = baseURL.replace(/\/$/, '')
   if (isProductionBase(normalizedBase)) {
@@ -153,25 +167,25 @@ export async function getBrowserCreds(baseURL: string, role: AppRole = 'owner'):
   }).catch(() => null)
 
   const anon = getAnonClient()
-  if (anon) {
-    const ready = await waitFor(async () => {
+  const ready = await waitFor(async () => {
+    if (anon) {
       const result = await anon.auth.signInWithPassword({ email, password })
       if (result.error || !result.data.session) return null
       await anon.auth.signOut().catch(() => null)
-      return true
-    }, { timeoutMs: 15_000, intervalMs: 500 })
-    if (!ready) {
-      try {
-        await admin.from('organizations').delete().eq('id', profile.organization_id)
-      } catch {
-      }
-      try {
-        await admin.from('profiles').delete().eq('id', userId)
-      } catch {
-      }
-      await admin.auth.admin.deleteUser(userId).catch(() => null)
-      throw new Error('Usuário E2E temporário não ficou autenticável a tempo.')
     }
+    return isAppLoginReady(normalizedBase, email, password)
+  }, { timeoutMs: 20_000, intervalMs: 500 })
+  if (!ready) {
+    try {
+      await admin.from('organizations').delete().eq('id', profile.organization_id)
+    } catch {
+    }
+    try {
+      await admin.from('profiles').delete().eq('id', userId)
+    } catch {
+    }
+    await admin.auth.admin.deleteUser(userId).catch(() => null)
+    throw new Error('Usuário E2E temporário não ficou autenticável pelo contrato real do app a tempo.')
   }
 
   const organizationId = profile.organization_id
