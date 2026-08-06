@@ -76,7 +76,10 @@ const suiteSettings = {
   'local-regression': {
     testIgnore: [
       '**/homologacao-*.spec.ts',
+      '**/*homolog*.spec.ts',
       '**/producao-*.spec.ts',
+      '**/*producao*.spec.ts',
+      '**/*production*.spec.ts',
       '**/phase2d_prod_homologation.spec.ts',
       '**/qa-e2e-audit.spec.ts',
       '**/financial-environment-isolation.spec.ts',
@@ -88,7 +91,14 @@ const suiteSettings = {
     ],
   },
   integration: {
-    testIgnore: ['**/homologacao-*.spec.ts', '**/producao-*.spec.ts', '**/phase2d_prod_homologation.spec.ts'],
+    testIgnore: [
+      '**/homologacao-*.spec.ts',
+      '**/*homolog*.spec.ts',
+      '**/producao-*.spec.ts',
+      '**/*producao*.spec.ts',
+      '**/*production*.spec.ts',
+      '**/phase2d_prod_homologation.spec.ts',
+    ],
     projects: [
       { name: 'Desktop Chrome', use: { browserName: 'chromium', launchOptions: devtools ? ({ devtools: true } as any) : undefined } },
       { name: 'Mobile Android', use: { ...devices['Pixel 7'], browserName: 'chromium', launchOptions: devtools ? ({ devtools: true } as any) : undefined } },

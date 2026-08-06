@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const rootDir = process.cwd()
 const cliPath = path.join(rootDir, 'node_modules', 'playwright', 'cli.js')
@@ -37,6 +39,14 @@ const LOCAL_PAGARME_CHECKOUT_TEST_ENV = {
   FINANCIAL_PROVIDER: 'pagarme',
   PAGARME_ENVIRONMENT: 'sandbox',
 }
+const SUPPORTED_FINANCIAL_PROVIDERS = ['mygateway', 'pagarme']
+const SUPPORTED_PAGARME_ENVIRONMENTS = ['sandbox', 'production']
+const RC_LOCAL_LAYER_FINANCIAL_ENV = {
+  FINANCIAL_PROVIDER: 'pagarme',
+  PAGARME_ENVIRONMENT: 'sandbox',
+}
+const LEGACY_MYGATEWAY_SPEC_TARGETS = ['tests/mygateway.spec.ts']
+const PROVIDER_NEUTRAL_SPEC_TARGETS = ['tests/webhook-billing-lifecycle.spec.ts']
 
 const criticalDesktopSpecs = [
   'tests/qa-auth.spec.ts',
@@ -165,6 +175,239 @@ function normalizeInputPath(filePath) {
   return String(filePath || '').trim().replace(/^\.?[\\/]/, '').replaceAll('/', path.sep).replaceAll('\\', path.sep)
 }
 
+function readEnvValue(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function hasEnvValue(value) {
+  return Boolean(readEnvValue(value))
+}
+
+function normalizeEnvToken(value) {
+  return readEnvValue(value).toLowerCase()
+}
+
+function getSpecTargets(args) {
+  return args
+    .map((arg) => normalizeInputPath(arg))
+    .filter((arg) => /\.(spec|test)\.[cm]?[jt]sx?$/i.test(arg))
+}
+
+function isLegacyMyGatewaySpec(target) {
+  return LEGACY_MYGATEWAY_SPEC_TARGETS.map((item) => normalizeInputPath(item)).includes(target)
+}
+
+function isProviderNeutralSpec(target) {
+  return PROVIDER_NEUTRAL_SPEC_TARGETS.map((item) => normalizeInputPath(item)).includes(target)
+}
+
+function resolveLocalRegressionFinancialPreset(label, args, env) {
+  if (hasEnvValue(env.FINANCIAL_PROVIDER)) return {}
+
+  const specTargets = getSpecTargets(args)
+  const legacyTargets = specTargets.filter((target) => isLegacyMyGatewaySpec(target))
+  if (legacyTargets.length === 0) return RC_LOCAL_LAYER_FINANCIAL_ENV
+
+  const conflictingTargets = specTargets.filter((target) => !isLegacyMyGatewaySpec(target) && !isProviderNeutralSpec(target))
+  if (conflictingTargets.length > 0) {
+    throw new Error(
+      `Camada ${label} mistura specs RC/Pagar.me com specs legadas MyGateway sem FINANCIAL_PROVIDER explícito: ${conflictingTargets.join(', ')}`,
+    )
+  }
+
+  return { FINANCIAL_PROVIDER: 'mygateway' }
+}
+
+function resolveLayerFinancialPreset(label, args, env) {
+  const suite = readEnvValue(env.PW_SUITE || 'local-regression') || 'local-regression'
+  if (suite !== 'local-regression') return {}
+  return resolveLocalRegressionFinancialPreset(label, args, env)
+}
+
+export function validateRunnerFinancialEnv(env) {
+  const provider = normalizeEnvToken(env.FINANCIAL_PROVIDER)
+  const pagarmeEnvironment = normalizeEnvToken(env.PAGARME_ENVIRONMENT)
+
+  if (!provider) {
+    throw new Error(
+      `FINANCIAL_PROVIDER must be explicitly set to one of: ${SUPPORTED_FINANCIAL_PROVIDERS.join(', ')}`,
+    )
+  }
+  if (!SUPPORTED_FINANCIAL_PROVIDERS.includes(provider)) {
+    throw new Error(
+      `Unsupported FINANCIAL_PROVIDER: ${readEnvValue(env.FINANCIAL_PROVIDER)}. Supported values: ${SUPPORTED_FINANCIAL_PROVIDERS.join(', ')}`,
+    )
+  }
+  if (hasEnvValue(env.PAGARME_ENVIRONMENT) && !SUPPORTED_PAGARME_ENVIRONMENTS.includes(pagarmeEnvironment)) {
+    throw new Error(
+      `Unsupported PAGARME_ENVIRONMENT: ${readEnvValue(env.PAGARME_ENVIRONMENT)}. Supported values: ${SUPPORTED_PAGARME_ENVIRONMENTS.join(', ')}`,
+    )
+  }
+  if (provider === 'pagarme' && !pagarmeEnvironment) {
+    throw new Error(
+      `PAGARME_ENVIRONMENT must be explicitly set to one of: ${SUPPORTED_PAGARME_ENVIRONMENTS.join(', ')}`,
+    )
+  }
+}
+
+function logResolvedRuntime(scope, label, env) {
+  const suite = readEnvValue(env.PW_SUITE || 'local-regression') || 'local-regression'
+  const baseURL = readEnvValue(env.BASE_URL) || '(unset)'
+  const provider = readEnvValue(env.FINANCIAL_PROVIDER) || '(unset)'
+  const pagarmeEnvironment = readEnvValue(env.PAGARME_ENVIRONMENT) || '(unset)'
+  console.log(
+    `[${scope}] camada=${label} suite=${suite} BASE_URL=${baseURL} FINANCIAL_PROVIDER=${provider} PAGARME_ENVIRONMENT=${pagarmeEnvironment}`,
+  )
+}
+
+// #region debug-point A:runner-exit
+async function reportDebugEvent(payload) {
+  let debugUrl = 'http://127.0.0.1:7777/event'
+  let sessionId = 'login-500-exitcode'
+  try {
+    const envFile = path.join(rootDir, '.dbg', 'login-500-exitcode.env')
+    if (fs.existsSync(envFile)) {
+      const content = fs.readFileSync(envFile, 'utf8')
+      debugUrl = content.match(/DEBUG_SERVER_URL=(.+)/)?.[1]?.trim() || debugUrl
+      sessionId = content.match(/DEBUG_SESSION_ID=(.+)/)?.[1]?.trim() || sessionId
+    }
+  } catch {}
+  await fetch(debugUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      sessionId,
+      runId: payload.runId ?? 'pre-fix',
+      hypothesisId: payload.hypothesisId ?? 'A',
+      location: payload.location ?? 'scripts/run-playwright-layer.mjs',
+      msg: payload.msg,
+      data: payload.data ?? {},
+      ts: Date.now(),
+    }),
+  }).catch(() => {})
+}
+// #endregion
+
+export function resolveRunEnvironment(label, args, extraEnv = {}, baseEnv = process.env) {
+  const env = {
+    ...baseEnv,
+    PW_SUITE: 'local-regression',
+    ...extraEnv,
+  }
+
+  if ((env.PW_SUITE || 'local-regression') === 'local-regression') {
+    env.BASE_URL = resolveLocalRegressionBaseUrl(env)
+  }
+
+  const layerFinancialPreset = resolveLayerFinancialPreset(label, args, env)
+  for (const [key, value] of Object.entries(layerFinancialPreset)) {
+    if (!hasEnvValue(env[key])) env[key] = value
+  }
+
+  if (shouldInjectLocalPagarmeCheckoutEnv(args)) {
+    for (const [key, value] of Object.entries(LOCAL_PAGARME_CHECKOUT_TEST_ENV)) {
+      if (!hasEnvValue(env[key])) env[key] = value
+    }
+  }
+  if (shouldInjectLocalPagarmeWebhookEnv(args)) {
+    for (const [key, value] of Object.entries(LOCAL_PAGARME_WEBHOOK_TEST_ENV)) {
+      if (!hasEnvValue(env[key])) env[key] = value
+    }
+  }
+
+  validateRunnerFinancialEnv(env)
+  return env
+}
+
+function shouldWriteArtifactsOutsideRepo(baseURL, env) {
+  if (!hasEnvValue(baseURL)) return false
+  if (readEnvValue(env.PW_ARTIFACTS_IN_REPO) === '1') return false
+  return isLoopbackBaseUrl(baseURL)
+}
+
+function resolveReportJsonPath(env) {
+  const runId = readEnvValue(env.PW_RUN_ID)
+  const explicitBase = readEnvValue(env.PW_ARTIFACTS_BASE)
+  const artifactBaseDir = explicitBase
+    ? explicitBase
+    : shouldWriteArtifactsOutsideRepo(env.BASE_URL, env)
+      ? path.join(env.TEMP || process.env.TEMP || os.tmpdir(), 'connektpay-playwright')
+      : ''
+
+  if (artifactBaseDir) {
+    return path.join(artifactBaseDir, runId || 'default-run', 'report.json')
+  }
+  if (runId) {
+    return path.join(rootDir, 'artifacts', runId, 'report.json')
+  }
+  return path.join(rootDir, 'playwright-report', 'report.json')
+}
+
+export function summarizePlaywrightReport(report) {
+  if (!report || typeof report !== 'object' || !Array.isArray(report.suites)) {
+    throw new Error('report.json ausente ou incompleto: campo suites inválido.')
+  }
+
+  const summary = {
+    passed: 0,
+    skipped: 0,
+    failed: 0,
+    timedOut: 0,
+    interrupted: 0,
+  }
+
+  const visitSuite = (suite) => {
+    for (const spec of suite.specs || []) {
+      for (const testCase of spec.tests || []) {
+        const status = readEnvValue(testCase.status)
+        if (status === 'expected') summary.passed += 1
+        else if (status === 'skipped') summary.skipped += 1
+        else if (status === 'unexpected') summary.failed += 1
+        else if (status === 'timedOut') summary.timedOut += 1
+        else if (status === 'interrupted') summary.interrupted += 1
+      }
+    }
+    for (const child of suite.suites || []) visitSuite(child)
+  }
+
+  for (const suite of report.suites) visitSuite(suite)
+  return summary
+}
+
+function readPlaywrightReport(reportPath) {
+  if (!fs.existsSync(reportPath)) {
+    throw new Error(`report.json ausente: ${reportPath}`)
+  }
+  let parsed
+  try {
+    parsed = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
+  } catch (error) {
+    throw new Error(`report.json inválido: ${reportPath} :: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return parsed
+}
+
+export function assertPlaywrightRunResult(label, result, env) {
+  if (result.signal) {
+    throw new Error(`${label} interrompido por sinal ${result.signal}.`)
+  }
+  if (typeof result.code !== 'number' || result.code !== 0) {
+    throw new Error(`${label} falhou com código ${String(result.code)}.`)
+  }
+
+  const reportPath = resolveReportJsonPath(env)
+  const report = readPlaywrightReport(reportPath)
+  const summary = summarizePlaywrightReport(report)
+
+  if (summary.failed > 0 || summary.timedOut > 0 || summary.interrupted > 0) {
+    throw new Error(
+      `${label} concluiu com falhas no report.json (${reportPath}): failed=${summary.failed} timedOut=${summary.timedOut} interrupted=${summary.interrupted}.`,
+    )
+  }
+
+  return { reportPath, summary }
+}
+
 function resolveChangedTargets(args) {
   if (args.length > 0) return args.map(normalizeInputPath).filter(Boolean)
 
@@ -283,6 +526,7 @@ function logCommand(label, args, env) {
   const suite = env.PW_SUITE ? ` PW_SUITE=${env.PW_SUITE}` : ''
   const runId = env.PW_RUN_ID ? ` PW_RUN_ID=${env.PW_RUN_ID}` : ''
   console.log(`\n[${label}]${suite}${runId}\n${display}`)
+  logResolvedRuntime('runner-env', label, env)
 }
 
 function sleep(ms) {
@@ -403,6 +647,7 @@ async function withLocalRegressionServer(env, run) {
   }
   const serverArgs = ['run', 'dev', '--', '--hostname', parsedBaseURL.hostname, '--port', String(parsedBaseURL.port || 80)]
   console.log(`\n[local-regression-server]\n${npmCommand} ${serverArgs.join(' ')}`)
+  logResolvedRuntime('server-env', 'local-regression-server', serverEnv)
 
   const child = spawn(npmCommand, serverArgs, {
     cwd: rootDir,
@@ -424,25 +669,7 @@ async function withLocalRegressionServer(env, run) {
 }
 
 async function runPlaywright(label, args, extraEnv = {}) {
-  const env = {
-    ...process.env,
-    PW_SUITE: 'local-regression',
-    ...extraEnv,
-  }
-
-  if ((env.PW_SUITE || 'local-regression') === 'local-regression') {
-    env.BASE_URL = resolveLocalRegressionBaseUrl(env)
-    if (shouldInjectLocalPagarmeCheckoutEnv(args)) {
-      for (const [key, value] of Object.entries(LOCAL_PAGARME_CHECKOUT_TEST_ENV)) {
-        if (!String(env[key] || '').trim()) env[key] = value
-      }
-    }
-    if (shouldInjectLocalPagarmeWebhookEnv(args)) {
-      for (const [key, value] of Object.entries(LOCAL_PAGARME_WEBHOOK_TEST_ENV)) {
-        if (!String(env[key] || '').trim()) env[key] = value
-      }
-    }
-  }
+  const env = resolveRunEnvironment(label, args, extraEnv, process.env)
 
   logCommand(label, args, env)
 
@@ -457,15 +684,41 @@ async function runPlaywright(label, args, extraEnv = {}) {
       })
 
       child.on('exit', (code, signal) => {
-        if (signal) {
-          reject(new Error(`${label} interrompido por sinal ${signal}.`))
-          return
-        }
-        if (code !== 0) {
-          reject(new Error(`${label} falhou com código ${code}.`))
-          return
-        }
-        resolve()
+        // #region debug-point A:playwright-child-exit
+        void reportDebugEvent({
+          runId: env.PW_RUN_ID || 'pre-fix',
+          hypothesisId: 'A',
+          location: 'scripts/run-playwright-layer.mjs:child.on(exit)',
+          msg: '[DEBUG] Playwright child process exited',
+          data: {
+            label,
+            suite: env.PW_SUITE || 'local-regression',
+            runId: env.PW_RUN_ID || '',
+            baseURL: env.BASE_URL || '',
+            code: code ?? null,
+            signal: signal ?? null,
+          },
+        })
+        // #endregion
+        Promise.resolve()
+          .then(() => assertPlaywrightRunResult(label, { code, signal }, env))
+          .then((reportResult) => {
+            // #region debug-point A:playwright-report-summary
+            void reportDebugEvent({
+              runId: env.PW_RUN_ID || 'pre-fix',
+              hypothesisId: 'A',
+              location: 'scripts/run-playwright-layer.mjs:assertPlaywrightRunResult',
+              msg: '[DEBUG] Playwright report summary validated',
+              data: {
+                label,
+                reportPath: reportResult.reportPath,
+                ...reportResult.summary,
+              },
+            })
+            // #endregion
+            resolve()
+          })
+          .catch((error) => reject(error))
       })
       child.on('error', reject)
     })
@@ -572,4 +825,14 @@ async function main() {
   }
 }
 
-await main()
+const isDirectExecution = (() => {
+  try {
+    return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
+  } catch {
+    return true
+  }
+})()
+
+if (isDirectExecution) {
+  await main()
+}
