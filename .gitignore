@@ -27,6 +27,19 @@ artifacts
 backups
 temp
 
+# Temporary files from investigation sessions
+_tmp-*
+debug-*.md
+*.bak
+*-data.json
+
+# Supabase local CLI state
+supabase/.temp/
+
+# Playwright binary cache and local traces outside artifacts
+*.zip
+
 # Local certificates and sensitive scratch files
 certificates
 PAGARME_WEBHOOK_USERNAME=connekt-webhook.txt
+*.ndjson
